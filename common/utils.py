@@ -1,0 +1,51 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jul 20 13:52:09 2022
+
+@author: lanaya
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+
+def safe_mean(arr):
+     return np.nan if len(arr) == 0 else round(np.mean(arr), 2)
+ 
+def obs_to_tensor(x):
+    x = np.array(x) if not isinstance(x, np.ndarray) else x
+    return torch.from_numpy(x).float()
+
+def clip_grad_norm_(module, max_grad_norm):
+    nn.utils.clip_grad_norm_([p for g in module.param_groups for p in g["params"]], max_grad_norm)
+
+def compute_gae_advantage(rewards, values, dones, last_value, gamma=0.95, gae_lambda=0.95):
+    advantages = []
+    gae_advantage = 0
+    for i in reversed(range(len(rewards))):
+        if i == len(rewards) - 1:
+            next_value = last_value
+        else:
+            next_value = values[i+1]
+        delta = rewards[i] + gamma * (1 - dones[i]) * next_value - values[i]
+        gae_advantage = delta + gamma * gae_lambda * (1 - dones[i]) * gae_advantage
+        advantages.append(gae_advantage)
+    return torch.FloatTensor(advantages[::-1]).view(-1, 1)
+
+def compute_td_target(rewards, dones, last_value, gamma=0.95):
+    target_values = []
+    td_target = last_value
+    for i in reversed(range(len(rewards))):
+        td_target = rewards[i] + gamma * (1 - dones[i]) * td_target
+        target_values.append(td_target)
+    return torch.FloatTensor(target_values[::-1]).view(-1, 1)
+    
+class Mish(nn.Module):
+    def __init__(self): 
+        super().__init__()
+        
+    def forward(self, x): 
+        return self._mish(x)
+    
+    def _mish(self, x):
+        return x * torch.tanh(F.softplus(x))
