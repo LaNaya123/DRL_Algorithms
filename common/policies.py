@@ -104,7 +104,7 @@ class OnPolicyAlgorithm():
             dists = self.actor(obs_to_tensor(self.obs))
             action = dists.sample().detach().numpy()
             action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
-            
+
             next_obs, reward, done, info = self.env.step(action_clipped)
             
             self.buffer.add((self.obs, action, reward, next_obs, done))
@@ -129,9 +129,7 @@ class OnPolicyAlgorithm():
             
             training_iterations += 1
             
-            if training_iterations % self.log_interval == 0 :
-                
-                 print(
-                       "episode", self.num_episode,
+            if training_iterations % self.log_interval == 0 and self.verbose > 0:
+                 print("episode", self.num_episode,
                        "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                        )

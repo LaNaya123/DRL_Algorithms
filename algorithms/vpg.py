@@ -9,7 +9,7 @@ sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 import gym
 import torch
 import torch.nn.functional as F
-from common.envs import Monitor
+from common.envs import Monitor, VecEnv
 from common.policies import OnPolicyAlgorithm
 from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target
     
@@ -50,7 +50,7 @@ class VPG(OnPolicyAlgorithm):
             values = self.critic(obs)
             
             if  self.td_method == "td":
-                target_values = rewards + 0.95 * self.critic(next_obs) * (1 - dones)
+                target_values = rewards + 0.99 * self.critic(next_obs) * (1 - dones)
                 
                 advantages = target_values - values
             
@@ -96,10 +96,12 @@ class VPG(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
+    env = VecEnv(env)
     vpg = VPG(env, 
               total_timesteps=5e5, 
-              rollout_steps=32, 
+              rollout_steps=16, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
+              td_method="td_lambda",
               seed=12,)
     vpg.learn()

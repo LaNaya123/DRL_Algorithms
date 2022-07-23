@@ -5,6 +5,8 @@ Created on Wed Jul 20 13:51:47 2022
 @author: lanaya
 """
 import torch 
+import numpy as np
+from common.utils import swap_and_flatten
 
 class RolloutBuffer():
     def __init__(self, buffer_size):
@@ -26,11 +28,11 @@ class RolloutBuffer():
             rewards.append(reward)
             next_obs.append(next_ob)
             dones.append(done)
-            
-        obs = torch.FloatTensor(obs)
-        actions = torch.FloatTensor(actions).view(-1, 1)
-        rewards = torch.FloatTensor(rewards).view(-1, 1)
-        next_obs = torch.FloatTensor(next_obs)
-        dones = torch.FloatTensor(dones).view(-1, 1)
+        
+        obs = torch.FloatTensor(swap_and_flatten(np.asarray(obs)))
+        actions = torch.FloatTensor(swap_and_flatten(np.asarray(actions)))
+        rewards = torch.FloatTensor(swap_and_flatten(np.asarray(rewards)))
+        next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs)))
+        dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones)))
         
         return obs, actions, rewards, next_obs, dones

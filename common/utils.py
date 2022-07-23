@@ -11,7 +11,13 @@ import numpy as np
 
 def safe_mean(arr):
      return np.nan if len(arr) == 0 else round(np.mean(arr), 2)
- 
+
+def swap_and_flatten(arr):
+        shape = arr.shape
+        if len(shape) < 3:
+            shape = shape + (1,)
+        return arr.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])
+    
 def obs_to_tensor(x):
     x = np.array(x) if not isinstance(x, np.ndarray) else x
     return torch.from_numpy(x).float()
@@ -22,6 +28,7 @@ def clip_grad_norm_(module, max_grad_norm):
 def compute_gae_advantage(rewards, values, dones, last_value, gamma=0.95, gae_lambda=0.95):
     advantages = []
     gae_advantage = 0
+
     for i in reversed(range(len(rewards))):
         if i == len(rewards) - 1:
             next_value = last_value
