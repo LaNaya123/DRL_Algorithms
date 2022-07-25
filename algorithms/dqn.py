@@ -8,20 +8,22 @@ Created on Mon Jul 25 15:06:14 2022
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 import gym
+import random
 from gym import spaces
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from common.envs import Monitor, VecEnv
 from common.policies import OffPolicyAlgorithm
-from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target
+from common.models import DeepQNetwork
+from common.buffers import ReplayBuffer
+from common.utils import Mish, obs_to_tensor
     
 class DQN(OffPolicyAlgorithm):
     def __init__(self, 
                  env, 
                  rollout_steps,
                  total_timesteps, 
-                 qnet_kwargs=None,
                  learning_start=1000,
                  buffer_size=10000,
                  batch_size=256,
@@ -31,15 +33,24 @@ class DQN(OffPolicyAlgorithm):
                  log_interval=10,
                  device="auto",
                  seed=None,
+                 qnet_kwargs=None,
+                 exploration_initial_eps=0.2,
+                 exploration_final_eps=0.05,
+                 exploration_decay_steps=10000,
+                 
                 ):
+        
+        self.qnet_kwargs = qnet_kwargs
+        
+        self.exploration_initial_eps = exploration_initial_eps
+        self.exploration_final_eps = exploration_final_eps
+        self.exploration_decay_steps = exploration_decay_steps
+        self.current_eps = exploration_initial_eps
         
         super(DQN, self).__init__(
                  env, 
                  rollout_steps,
                  total_timesteps, 
-                 qnet_kwargs,
-                 None,
-                 None,
                  learning_start,
                  buffer_size,
                  batch_size,
@@ -47,11 +58,55 @@ class DQN(OffPolicyAlgorithm):
                  gamma,
                  verbose,
                  log_interval,
-                 "value_based",
                  device,
                  seed,
                 )
         
+    def _setup_model(self):
+        observation_dim = self.env.observation_space.shape[0]
+        
+        num_action = self.env.action_space.n
+        
+        self.qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs)
+        self.target_qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs)
+        self.target_qnet.load_state_dict(self.qnet.state_dict())
+            
+        if self.verbose > 0:
+            print(self.qnet)
+
+        self.buffer = ReplayBuffer(self.buffer_size)
+        
+        self.obs = self.env.reset()
+        
+    def _update_exploration_eps(self):
+        if self.current_eps == self.exploration_final_eps:
+            return 
+        self.current_eps = self.exploration_initial_eps - ((self.exploration_initial_eps - self.exploration_final_eps) / self.exploration_decay_steps) * self.current_timesteps
+        self.current_eps = max(self.current_eps, self.exploration_final_eps)
+        
+    def rollout(self):
+        for i in range(self.rollout_steps):
+            q = self.qnet(obs_to_tensor(self.obs))
+            
+            coin = random.random()
+            if coin < self.current_eps:
+                action = random.randint(0, self.env.action_space.n - 1)
+            else:
+                action = q.argmax().item()
+    
+            next_obs, reward, done, info = self.env.step(action)
+            
+            self.buffer.add((self.obs, action, reward, next_obs, done))
+            
+            self.obs = next_obs
+            
+            self.current_timesteps += self.env.num_envs
+            
+            self._update_episode_info(info)
+            
+            self._update_exploration_eps()
+            
+    
     def train(self):
 
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
@@ -85,8 +140,6 @@ class DQN(OffPolicyAlgorithm):
             if self.training_iterations % self.target_update_interval == 0:
                 self.target_qnet.load_state_dict(self.qnet.state_dict())
 
-        
-            
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     env = Monitor(env)
@@ -98,5 +151,5 @@ if __name__ == "__main__":
               buffer_size=2000,
               batch_size=64,
               log_interval=20,
-              seed=1,)
+              seed=2,)
     dqn.learn()

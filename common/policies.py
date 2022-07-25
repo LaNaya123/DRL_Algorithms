@@ -9,8 +9,8 @@ import random
 import torch
 from gym import spaces
 from collections import deque
-from common.models import ContinuousActor, Critic, DeepQNetwork
-from common.buffers import RolloutBuffer, ReplayBuffer
+from common.models import ContinuousActor, Critic
+from common.buffers import RolloutBuffer
 from common.utils import obs_to_tensor, safe_mean
     
 class OnPolicyAlgorithm():
@@ -151,9 +151,6 @@ class OffPolicyAlgorithm():
                  env, 
                  rollout_steps,
                  total_timesteps, 
-                 qnet_kwargs=None,
-                 actor_kwargs=None,
-                 critic_kwargs=None,
                  learning_start=1000,
                  buffer_size=10000,
                  batch_size=256,
@@ -161,7 +158,6 @@ class OffPolicyAlgorithm():
                  gamma=0.99,
                  verbose=1,
                  log_interval=10,
-                 mode="value_based",
                  device="auto",
                  seed=None,
                  ):
@@ -169,9 +165,6 @@ class OffPolicyAlgorithm():
         self.env = env
         self.rollout_steps = rollout_steps
         self.total_timesteps = total_timesteps
-        self.qnet_kwargs = {} if qnet_kwargs is None else qnet_kwargs
-        self.actor_kwargs = {} if actor_kwargs is None else actor_kwargs
-        self.critic_kwargs = {} if critic_kwargs is None else critic_kwargs
         self.learning_start = learning_start
         self.buffer_size = buffer_size
         self.batch_size=batch_size
@@ -179,7 +172,6 @@ class OffPolicyAlgorithm():
         self.gamma = gamma
         self.verbose = verbose
         self.log_interval = log_interval
-        self.mode = mode
         self.seed = seed
         
         if device == "auto":
@@ -188,40 +180,15 @@ class OffPolicyAlgorithm():
             self.device = torch.device(device)
         if self.verbose > 0:
             print(f"Using the device: {self.device}")
-
+        
         self._setup_model()
         
         self._setup_param()
         
         self._set_seed()
-
+        
     def _setup_model(self):
-        observation_dim = self.env.observation_space.shape[0]
-        
-        if isinstance(self.env.action_space, spaces.Discrete):
-            num_action = self.env.action_space.n
-        elif isinstance(self.env.action_space, spaces.Box):
-            num_action = self.env.action_space.shape[0]
-        
-        if self.mode == "value_based":
-            self.qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs)
-            self.target_qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs)
-            self.target_qnet.load_state_dict(self.qnet.state_dict())
-            
-            if self.verbose > 0:
-                print(self.qnet)
-        else:
-            self.actor = ContinuousActor(observation_dim, num_action, **self.actor_kwargs)
-
-            self.critic = Critic(observation_dim, **self.critic_kwargs)
-        
-            if self.verbose > 0:
-                print(self.actor)
-                print(self.critic)
-        
-        self.buffer = ReplayBuffer(self.buffer_size)
-        
-        self.obs = self.env.reset()
+        raise NotImplementedError
     
     def _setup_param(self):
         self.episode_info_buffer = deque(maxlen=10)
@@ -256,30 +223,7 @@ class OffPolicyAlgorithm():
                 self.num_episode += 1
                 
     def rollout(self):
-        for i in range(self.rollout_steps):
-            if self.mode == "value_based":
-                q = self.qnet(obs_to_tensor(self.obs))
-                coin = random.random()
-                if coin < 0.1:
-                    clipped_action = random.randint(0, self.env.action_space.n - 1)
-                else:
-                    clipped_action = q.argmax().item()
-                action = clipped_action
-    
-            else:
-                dists = self.actor(obs_to_tensor(self.obs))
-                action = dists.sample().detach().numpy()
-                clipped_action = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
-
-            next_obs, reward, done, info = self.env.step(clipped_action)
-            
-            self.buffer.add((self.obs, action, reward, next_obs, done))
-            
-            self.obs = next_obs
-            
-            self.current_timesteps += self.env.num_envs
-            
-            self._update_episode_info(info)
+        raise NotImplementedError
             
     def train(self):
         raise NotImplementedError
