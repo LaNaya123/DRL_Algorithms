@@ -92,13 +92,15 @@ class VecEnv():
 class Monitor():
     def __init__(self, env):
         self.env = env
+        self.num_envs = 1
         self.observation_space = env.observation_space
         self.action_space = env.action_space
 
         self.rewards = []
     
     def seed(self, seed):
-        self.env(seed)
+        print("1")
+        self.env.seed(seed)
         
     def reset(self):
         observation = self.env.reset()

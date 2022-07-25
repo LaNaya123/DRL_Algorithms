@@ -21,9 +21,12 @@ class VPG(OnPolicyAlgorithm):
                  actor_kwargs=None,
                  critic_kwargs=None,
                  td_method="td_lambda",
+                 gamma=0.99,
+                 gae_lambda=0.95,
                  verbose=1,
                  log_interval=100,
-                 seed=None
+                 device="auto",
+                 seed=12,
                  ):
         
         super(VPG, self).__init__(
@@ -33,9 +36,12 @@ class VPG(OnPolicyAlgorithm):
             actor_kwargs,
             critic_kwargs,
             td_method,
+            gamma,
+            gae_lambda,
             verbose, 
             log_interval,
-            seed
+            device,
+            seed,
             )
         
     def train(self):
@@ -50,7 +56,7 @@ class VPG(OnPolicyAlgorithm):
             values = self.critic(obs)
             
             if  self.td_method == "td":
-                target_values = rewards + 0.99 * self.critic(next_obs) * (1 - dones)
+                target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
                 
                 advantages = target_values - values
             
@@ -60,7 +66,7 @@ class VPG(OnPolicyAlgorithm):
                 else:
                     last_value = self.critic(next_obs[-1])
             
-                target_values = compute_td_target(rewards, dones, last_value)
+                target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
                 
                 advantages = target_values - values
                 
@@ -70,7 +76,7 @@ class VPG(OnPolicyAlgorithm):
                 else:
                     last_value = self.critic(next_obs[-1])
             
-                advantages = compute_gae_advantage(rewards, values, dones, last_value)
+                advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
                 
                 target_values = advantages + values
                 
@@ -79,7 +85,7 @@ class VPG(OnPolicyAlgorithm):
             dists = self.actor(obs)
             
             log_probs = dists.log_prob(actions)
-            
+             
             actor_loss = -(log_probs * advantages.detach()).mean()
             
             self.actor.optimizer.zero_grad()
@@ -96,12 +102,12 @@ class VPG(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    env = VecEnv(env)
     vpg = VPG(env, 
               total_timesteps=5e5, 
               rollout_steps=16, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
-              seed=12,)
+              seed=1,
+             )
     vpg.learn()
