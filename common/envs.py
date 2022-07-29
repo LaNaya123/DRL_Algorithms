@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Fri Jul 22 13:12:55 2022
-
-@author: lanaya
-"""
 import multiprocessing as mp
 import numpy as np
 

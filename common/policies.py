@@ -1,15 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Jul 19 23:36:28 2022
-
-@author: lanaya
-"""
 import numpy as np
 import random
 import torch
 from gym import spaces
 from collections import deque
-from common.models import ContinuousActor, Critic
+from common.models import ContinuousActor, VCritic
 from common.buffers import RolloutBuffer
 from common.utils import obs_to_tensor, safe_mean
     
@@ -40,8 +35,7 @@ class OnPolicyAlgorithm():
         self.verbose = verbose
         self.log_interval = log_interval
         self.seed = seed
-        print(self.seed, "1123123")
-        print(log_interval)
+
         if device == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -65,7 +59,7 @@ class OnPolicyAlgorithm():
 
         self.actor = ContinuousActor(observation_dim, num_action, **self.actor_kwargs)
 
-        self.critic = Critic(observation_dim, **self.critic_kwargs)
+        self.critic = VCritic(observation_dim, **self.critic_kwargs)
         
         if self.verbose > 0:
             print(self.actor)
@@ -151,20 +145,22 @@ class OffPolicyAlgorithm():
                  env, 
                  rollout_steps,
                  total_timesteps, 
-                 learning_start=1000,
-                 buffer_size=10000,
-                 batch_size=256,
-                 target_update_interval=20,
-                 gamma=0.99,
-                 verbose=1,
-                 log_interval=10,
-                 device="auto",
-                 seed=None,
+                 gradient_steps,
+                 learning_start,
+                 buffer_size,
+                 batch_size,
+                 target_update_interval,
+                 gamma,
+                 verbose,
+                 log_interval,
+                 device,
+                 seed,
                  ):
         
         self.env = env
         self.rollout_steps = rollout_steps
         self.total_timesteps = total_timesteps
+        self.gradient_steps = gradient_steps
         self.learning_start = learning_start
         self.buffer_size = buffer_size
         self.batch_size=batch_size
@@ -237,9 +233,11 @@ class OffPolicyAlgorithm():
             
             if self.current_timesteps > 0 and self.current_timesteps > self.learning_start:
                 
-                self.train()
+                for _ in range(self.gradient_steps):
+                    
+                    self.train()
             
-                self.training_iterations += 1
+                    self.training_iterations += 1
             
             if self.training_iterations % self.log_interval == 0 and self.verbose > 0:
                  print("episode", self.num_episode,

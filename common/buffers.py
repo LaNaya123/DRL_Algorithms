@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Jul 20 13:51:47 2022
-
-@author: lanaya
-"""
 import torch 
 import numpy as np
 import random

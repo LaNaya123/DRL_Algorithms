@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Jul 20 15:41:29 2022
-
-@author: lanaya
-"""
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 import gym
@@ -103,11 +98,11 @@ if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
     vpg = VPG(env, 
-              total_timesteps=5e5, 
               rollout_steps=16, 
+              total_timesteps=5e5, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
-              seed=1,
+              seed=5,
              )
     vpg.learn()

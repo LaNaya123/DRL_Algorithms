@@ -1,17 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Jul 25 15:06:14 2022
-
-@author: lanaya
-"""
-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 import gym
 import random
-from gym import spaces
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from common.envs import Monitor, VecEnv
 from common.policies import OffPolicyAlgorithm
@@ -22,8 +14,9 @@ from common.utils import Mish, obs_to_tensor
 class DQN(OffPolicyAlgorithm):
     def __init__(self, 
                  env, 
-                 rollout_steps,
-                 total_timesteps, 
+                 rollout_steps=16,
+                 total_timesteps=1e6, 
+                 gradient_steps=4,
                  learning_start=1000,
                  buffer_size=10000,
                  batch_size=256,
@@ -37,7 +30,6 @@ class DQN(OffPolicyAlgorithm):
                  exploration_initial_eps=0.2,
                  exploration_final_eps=0.05,
                  exploration_decay_steps=10000,
-                 
                 ):
         
         self.qnet_kwargs = qnet_kwargs
@@ -51,6 +43,7 @@ class DQN(OffPolicyAlgorithm):
                  env, 
                  rollout_steps,
                  total_timesteps, 
+                 gradient_steps,
                  learning_start,
                  buffer_size,
                  batch_size,
@@ -108,16 +101,12 @@ class DQN(OffPolicyAlgorithm):
             
     
     def train(self):
-
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
             actions = actions.type("torch.LongTensor")
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
-            if isinstance(self.env.action_space, spaces.Discrete):
-                assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
-            elif isinstance(self.env.action_space, spaces.Box):
-                assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
+            assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
             assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
             assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
@@ -144,12 +133,13 @@ if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     env = Monitor(env)
     dqn = DQN(env, 
-              total_timesteps=5e5, 
-              rollout_steps=8, 
+              rollout_steps=8,
+              total_timesteps=5e5,
+              gradient_steps=2,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=100,
-              buffer_size=2000,
+              buffer_size=5000,
               batch_size=64,
               log_interval=20,
-              seed=2,)
+              seed=5,)
     dqn.learn()

@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Jul 20 13:52:09 2022
-
-@author: lanaya
-"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -56,3 +51,20 @@ class Mish(nn.Module):
     
     def _mish(self, x):
         return x * torch.tanh(F.softplus(x))
+    
+class OrnsteinUhlenbeckNoise():
+    def __init__(self, mu, sigma=0.1, theta=0.1, dt=0.01):
+        self.mu = mu
+        self.sigma = sigma
+        self.theta = theta
+        self.dt = dt
+        self.x_prev = np.zeros_like(self.mu)
+        
+    def reset(self):
+        self.x_prev = np.zeros_like(self.mu)
+
+    def __call__(self):
+        x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + \
+            self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
+        self.x_prev = x
+        return x
