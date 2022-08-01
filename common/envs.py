@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import multiprocessing as mp
 import numpy as np
+from gym import spaces
 
 def _worker(worker_remote, parent_remote, env):
     parent_remote.close()
@@ -94,7 +95,6 @@ class Monitor():
         self.rewards = []
     
     def seed(self, seed):
-        print("1")
         self.env.seed(seed)
         
     def reset(self):
@@ -102,6 +102,9 @@ class Monitor():
         return observation 
     
     def step(self, action):
+        if isinstance(self.action_space, spaces.Discrete) and isinstance(action, np.ndarray):
+            action = action.item()
+
         next_observation, reward, done, info = self.env.step(action)
         
         self.rewards.append(reward)

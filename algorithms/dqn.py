@@ -3,6 +3,7 @@ import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 import gym
 import random
+import numpy as np
 import torch
 import torch.nn.functional as F
 from common.envs import Monitor, VecEnv
@@ -65,7 +66,7 @@ class DQN(OffPolicyAlgorithm):
         self.target_qnet.load_state_dict(self.qnet.state_dict())
             
         if self.verbose > 0:
-            print(self.qnet)
+            print(self.qnet) 
 
         self.buffer = ReplayBuffer(self.buffer_size)
         
@@ -83,10 +84,11 @@ class DQN(OffPolicyAlgorithm):
             
             coin = random.random()
             if coin < self.current_eps:
-                action = random.randint(0, self.env.action_space.n - 1)
+                action = [random.randint(0, self.env.action_space.n - 1) for _ in range(self.env.num_envs)]
+                action = np.asarray(action)[:, np.newaxis]
             else:
-                action = q.argmax().item()
-    
+                action = q.argmax(dim=-1, keepdim=True).detach().numpy()
+
             next_obs, reward, done, info = self.env.step(action)
             
             self.buffer.add((self.obs, action, reward, next_obs, done))
@@ -132,14 +134,15 @@ class DQN(OffPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     env = Monitor(env)
+    #env = VecEnv(env, num_envs=4)
     dqn = DQN(env, 
               rollout_steps=8,
               total_timesteps=5e5,
               gradient_steps=2,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
-              learning_start=100,
+              learning_start=500,
               buffer_size=5000,
               batch_size=64,
               log_interval=20,
-              seed=5,)
+              seed=0,)
     dqn.learn()

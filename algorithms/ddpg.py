@@ -131,12 +131,13 @@ class DDPG(OffPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
+    #env = VecEnv(env, num_envs=4)
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
     ddpg = DDPG(env, 
               total_timesteps=5e5, 
               gradient_steps=4,
               rollout_steps=8, 
-              learning_start=100,
+              learning_start=500,
               buffer_size=10000,
               batch_size=64,
               target_update_interval=1,
