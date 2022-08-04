@@ -19,6 +19,7 @@ class VPG(OnPolicyAlgorithm):
                  gamma=0.99,
                  gae_lambda=0.95,
                  verbose=1,
+                 log_dir=None,
                  log_interval=100,
                  device="auto",
                  seed=12,
@@ -34,6 +35,7 @@ class VPG(OnPolicyAlgorithm):
             gamma,
             gae_lambda,
             verbose, 
+            log_dir,
             log_interval,
             device,
             seed,
@@ -99,10 +101,11 @@ if __name__ == "__main__":
     env = Monitor(env)
     vpg = VPG(env, 
               rollout_steps=16, 
-              total_timesteps=5e5, 
+              total_timesteps=2e5, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
+              log_dir=None,
               seed=5,
              )
     vpg.learn()

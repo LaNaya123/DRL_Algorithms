@@ -59,7 +59,7 @@ class ReplayBuffer():
         try:
             samples = random.sample(self.buffer, batch_size)
         except:
-            raise ValueError("The batch size must be greater than learning start")
+            raise ValueError("The batch size must be greater than learning start:)")
         
         obs, actions, rewards, next_obs, dones = [], [], [], [], []
         

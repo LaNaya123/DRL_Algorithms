@@ -7,21 +7,23 @@ from collections import deque
 from common.models import ContinuousActor, VCritic
 from common.buffers import RolloutBuffer
 from common.utils import obs_to_tensor, safe_mean
+from common.logger import Logger
     
 class OnPolicyAlgorithm():
     def __init__(self, 
                  env, 
                  rollout_steps,
                  total_timesteps, 
-                 actor_kwargs=None,
-                 critic_kwargs=None,
-                 td_method="td_lambda",
-                 gamma=0.99,
-                 gae_lambda=0.95,
-                 verbose=1,
-                 log_interval=10,
-                 device="auto",
-                 seed=None,
+                 actor_kwargs,
+                 critic_kwargs,
+                 td_method,
+                 gamma,
+                 gae_lambda,
+                 verbose,
+                 log_dir,
+                 log_interval,
+                 device,
+                 seed,
                  ):
         
         self.env = env
@@ -33,6 +35,7 @@ class OnPolicyAlgorithm():
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.verbose = verbose
+        self.log_dir = log_dir
         self.log_interval = log_interval
         self.seed = seed
 
@@ -46,6 +49,8 @@ class OnPolicyAlgorithm():
         self._setup_model()
         
         self._setup_param()
+        
+        self._setup_logger()
         
         self._set_seed()
 
@@ -70,11 +75,17 @@ class OnPolicyAlgorithm():
         self.obs = self.env.reset()
     
     def _setup_param(self):
-        self.episode_info_buffer = deque(maxlen=4)
+        self.episode_info_buffer = deque(maxlen=10)
         
         self.num_episode = 0
         
         self.current_timesteps = 0
+        
+    def _setup_logger(self):
+        if self.log_dir is None:
+            self.logger = None
+        else:
+            self.logger = Logger(self.log_dir)
         
     def _set_seed(self):
         if self.seed is None:
@@ -101,6 +112,16 @@ class OnPolicyAlgorithm():
                 self.episode_info_buffer.append(episode_info)
                 self.num_episode += 1
                 
+                if self.logger is not None:
+                    if self.logger.log_count == 0:
+                        data = list(episode_info.keys())
+                        data = ["num_episode"] + data
+                        self.logger.write(data)
+                    data = list(episode_info.values())
+                    data = [self.num_episode] + data
+                    self.logger.write(data)
+                    self.logger.log_count += 1
+                    
     def rollout(self):
         self.buffer.reset()
         
@@ -139,6 +160,8 @@ class OnPolicyAlgorithm():
                  print("episode", self.num_episode,
                        "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                        )
+        if self.logger is not None:
+            self.logger.close()
                  
 class OffPolicyAlgorithm():
     def __init__(self, 
@@ -152,6 +175,7 @@ class OffPolicyAlgorithm():
                  target_update_interval,
                  gamma,
                  verbose,
+                 log_dir,
                  log_interval,
                  device,
                  seed,
@@ -167,6 +191,7 @@ class OffPolicyAlgorithm():
         self.target_update_interval = target_update_interval
         self.gamma = gamma
         self.verbose = verbose
+        self.log_dir = log_dir
         self.log_interval = log_interval
         self.seed = seed
         
@@ -181,6 +206,8 @@ class OffPolicyAlgorithm():
         
         self._setup_param()
         
+        self._setup_logger()
+        
         self._set_seed()
         
     def _setup_model(self):
@@ -192,7 +219,13 @@ class OffPolicyAlgorithm():
         self.num_episode = 0
         
         self.current_timesteps = 0
-        
+    
+    def _setup_logger(self):
+        if self.log_dir is None:
+            self.logger = None
+        else:
+            self.logger = Logger(self.log_dir)
+            
     def _set_seed(self):
         if self.seed is None:
             return
@@ -217,6 +250,16 @@ class OffPolicyAlgorithm():
             if episode_info is not None:
                 self.episode_info_buffer.append(episode_info)
                 self.num_episode += 1
+                
+                if self.logger is not None:
+                    if self.logger.log_count == 0:
+                        data = list(episode_info.keys())
+                        data = ["num_episode"] + data
+                        self.logger.write(data)
+                    data = list(episode_info.values())
+                    data = [self.num_episode] + data
+                    self.logger.write(data)
+                    self.logger.log_count += 1
                 
     def rollout(self):
         raise NotImplementedError
@@ -243,3 +286,6 @@ class OffPolicyAlgorithm():
                  print("episode", self.num_episode,
                        "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                        )
+                 
+        if self.logger is not None:
+            self.logger.close()

@@ -24,6 +24,7 @@ class DQN(OffPolicyAlgorithm):
                  target_update_interval=20,
                  gamma=0.99,
                  verbose=1,
+                 log_dir=None,
                  log_interval=10,
                  device="auto",
                  seed=None,
@@ -51,6 +52,7 @@ class DQN(OffPolicyAlgorithm):
                  target_update_interval,
                  gamma,
                  verbose,
+                 log_dir,
                  log_interval,
                  device,
                  seed,
@@ -137,12 +139,13 @@ if __name__ == "__main__":
     #env = VecEnv(env, num_envs=4)
     dqn = DQN(env, 
               rollout_steps=8,
-              total_timesteps=5e5,
+              total_timesteps=5e4,
               gradient_steps=2,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=500,
               buffer_size=5000,
               batch_size=64,
+              log_dir=None,
               log_interval=20,
-              seed=0,)
+              seed=2,)
     dqn.learn()
