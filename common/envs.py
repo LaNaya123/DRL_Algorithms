@@ -38,6 +38,7 @@ class VecEnv():
     def __init__(self, env, num_envs=4, start_method=None):
         self.envs = [env] * num_envs
         self.num_envs = num_envs
+        self.is_vec = True
         
         self.observation_space = env.observation_space
         self.action_space = env.action_space
@@ -89,6 +90,7 @@ class Monitor():
     def __init__(self, env):
         self.env = env
         self.num_envs = 1
+        self.is_vec = False
         self.observation_space = env.observation_space
         self.action_space = env.action_space
 

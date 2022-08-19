@@ -8,14 +8,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
 from common.envs import Monitor, VecEnv
-from common.models import VPGActor, VCritic
+from common.models import ACKTRActor, ACKTRCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
 from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
 from common.kfac import KFACOptimizer
 
-    
-class VPG(OnPolicyAlgorithm):
+class ACKTR(OnPolicyAlgorithm):
     def __init__(self, 
                  env, 
                  rollout_steps, 
@@ -25,7 +24,7 @@ class VPG(OnPolicyAlgorithm):
                  td_method="td_lambda",
                  gamma=0.99,
                  gae_lambda=0.95,
-                 max_grad_norm=0.5,
+                 max_grad_norm=None,
                  verbose=1,
                  log_dir=None,
                  log_interval=100,
@@ -33,7 +32,7 @@ class VPG(OnPolicyAlgorithm):
                  seed=12,
                  ):
         
-        super(VPG, self).__init__(
+        super(ACKTR, self).__init__(
             env, 
             rollout_steps, 
             total_timesteps, 
@@ -58,9 +57,9 @@ class VPG(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             num_action = self.env.action_space.shape[0]
 
-        self.actor = VPGActor(observation_dim, num_action, **self.actor_kwargs)
+        self.actor = ACKTRActor(observation_dim, num_action, **self.actor_kwargs)
 
-        self.critic = VCritic(observation_dim, **self.critic_kwargs)
+        self.critic = ACKTRCritic(observation_dim, **self.critic_kwargs)
         
         if self.verbose > 0:
             print(self.actor)
@@ -72,14 +71,20 @@ class VPG(OnPolicyAlgorithm):
         
     def rollout(self):
         self.buffer.reset()
+        
         with torch.no_grad():
-            for i in range(self.rollout_steps):
-                dists = self.actor(obs_to_tensor(self.obs))
             
+            for i in range(self.rollout_steps):
+                obs = obs_to_tensor(self.obs)
+                
+                dists = self.actor(obs)
+                
                 action = dists.sample().detach().numpy()
+                if not self.env.is_vec:
+                    action = action.squeeze(axis=0)
 
                 action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
-
+            
                 next_obs, reward, done, info = self.env.step(action_clipped)
             
                 self.buffer.add((self.obs, action, reward, next_obs, done))
@@ -89,7 +94,7 @@ class VPG(OnPolicyAlgorithm):
                 self.current_timesteps += self.env.num_envs
             
                 self._update_episode_info(info)
-            
+        
     def train(self):
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
@@ -101,16 +106,17 @@ class VPG(OnPolicyAlgorithm):
             
             values = self.critic(obs)
             
-            if  self.td_method == "td":
-                target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
-                
-                advantages = target_values - values
+            if self.td_method == "td":
+                with torch.no_grad():
+                    target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
+                    advantages = target_values - values
             
             elif self.td_method == "td_n":
                 if dones[-1]:
                     last_value = 0
                 else:
-                    last_value = self.critic(next_obs[-1])
+                    with torch.no_grad():
+                        last_value = self.critic(next_obs[-1])
             
                 target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
                 
@@ -120,7 +126,8 @@ class VPG(OnPolicyAlgorithm):
                 if dones[-1]:
                     last_value = 0
                 else:
-                    last_value = self.critic(next_obs[-1])
+                    with torch.no_grad():
+                        last_value = self.critic(next_obs[-1])
             
                 advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
                 
@@ -132,38 +139,62 @@ class VPG(OnPolicyAlgorithm):
             
             log_probs = dists.log_prob(actions)
              
+            if self.actor.optimizer.steps % self.actor.optimizer.Ts == 0:
+                self.actor.zero_grad()
+                
+                pg_fisher_loss = log_probs.mean()
+                
+                self.actor.optimizer.acc_stats = True
+                pg_fisher_loss.backward(retain_graph=True)
+                self.actor.optimizer.acc_stats = False
+
             actor_loss = -(log_probs * advantages.detach()).mean()
             
             self.actor.optimizer.zero_grad()
+            
             actor_loss.backward()
             
-            if self.max_grad_norm:
+            if self.max_grad_norm is not None:
                 clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
             
             self.actor.optimizer.step()
-        
-            critic_loss = F.mse_loss(target_values.detach(), values)
+            
+            if self.critic.optimizer.steps % self.critic.optimizer.Ts == 0:
+                self.critic.zero_grad()
+                
+                value_noise = torch.randn(values.size())
+                
+                sample_values = values + value_noise
+                
+                vf_fisher_loss = -0.5 * F.smooth_l1_loss(values, sample_values.detach())
+                
+                self.critic.optimizer.acc_stats = True
+                vf_fisher_loss.backward(retain_graph=True)
+                self.critic.optimizer.acc_stats = False
+
+            critic_loss = F.smooth_l1_loss(target_values.detach(), values)
             
             self.critic.optimizer.zero_grad()
             
             critic_loss.backward()
             
-            if self.max_grad_norm:
-                clip_grad_norm_(self.critic.optimizer, self.max_grad_norm)
-            
+            if self.max_grad_norm is not None:
+                clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
+
             self.critic.optimizer.step()
             
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    vpg = VPG(env, 
+    env = VecEnv(env, num_envs=4)
+    acktr = ACKTR(env, 
               rollout_steps=8, 
-              total_timesteps=2e5, 
-              actor_kwargs={"activation_fn": Mish}, 
-              critic_kwargs={"activation_fn": Mish},
+              total_timesteps=5e5, 
+              actor_kwargs={"activation_fn": nn.ReLU}, 
+              critic_kwargs={"activation_fn": nn.ReLU},
+              max_grad_norm=0.05,
               td_method="td_lambda",
-              max_grad_norm=0.5,
               log_dir=None,
               seed=14,
              )
-    vpg.learn()
+    acktr.learn()

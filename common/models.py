@@ -2,19 +2,19 @@
 import torch 
 import torch.nn as nn
 import torch.optim as optim
+from common.kfac import AddBias, KFACOptimizer
 
-class ContinuousActor(nn.Module):
+class ACKTRActor(nn.Module):
     def __init__(self, 
                  observation_dim, 
                  num_action, 
                  hidden_size=64, 
                  activation_fn=nn.Tanh,
                  net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":3e-4}
+                 optimizer_kwargs={"lr":0.25},
                 ):
         
-        super(ContinuousActor, self).__init__()
+        super(ACKTRActor, self).__init__()
         
         self.observation_dim = observation_dim
         self.num_action = num_action
@@ -40,14 +40,9 @@ class ContinuousActor(nn.Module):
                 nn.Linear(hidden_size, num_action),
                 )
         
-        logstds_param = nn.Parameter(torch.full((num_action,), 0.1))
-        self.register_parameter("logstds", logstds_param)
+        self.logstds = AddBias(torch.zeros(num_action))
         
-        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
-    
-    def _orthogonal_init__(self, layer):
-        if isinstance(layer, nn.Linear):
-            torch.nn.init.orthogonal_(layer.weight)
+        self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
     
     def forward(self, x):
         if self.net_arch is not None:
@@ -56,11 +51,59 @@ class ContinuousActor(nn.Module):
             means = x
         else:
             means = self.model(x)
-         
-        stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
         
+        zeros = torch.zeros(means.size())
+        logstds = self.logstds(zeros)
+         
+        stds = torch.clamp(logstds.exp(), 7e-4, 50)
         return torch.distributions.Normal(means, stds) 
+
+class DeepQNetwork(nn.Module):
+    def __init__(self, 
+                 observation_dim, 
+                 num_action, 
+                 hidden_size=64, 
+                 activation_fn=nn.Tanh,
+                 net_arch=None,
+                 optimizer=optim.Adam,
+                 optimizer_kwargs={"lr":1e-3}
+                ):
+        super(DeepQNetwork, self).__init__()
+        
+        self.observation_dim = observation_dim
+        self.num_action = num_action
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        self.net_arch = net_arch
+        
+        if net_arch is not None:
+            in_features = observation_dim
+            self.model = nn.ModuleList()
+            for i, out_features in enumerate(net_arch):
+                self.model.append(nn.Linear(in_features, out_features))
+                if i != len(net_arch) - 1:
+                    self.model.append(activation_fn())
+                in_features = out_features
+        
+        else:
+            self.model = nn.Sequential(
+                nn.Linear(observation_dim, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, num_action),
+                )
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
+    def forward(self, x):
+        if self.net_arch is not None:
+            for i, layer in enumerate(self.model):
+                x = layer(x)
+        else:
+            x = self.model(x)
+        return x
+
 class DDPGActor(nn.Module):
     def __init__(self, 
                  observation_dim, 
@@ -103,10 +146,6 @@ class DDPGActor(nn.Module):
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def _orthogonal_init__(self, layer):
-        if isinstance(layer, nn.Linear):
-            torch.nn.init.orthogonal_(layer.weight)
-    
     def forward(self, x):
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
@@ -115,16 +154,69 @@ class DDPGActor(nn.Module):
             x = self.model(x)
         return x
          
+class VPGActor(nn.Module):
+    def __init__(self, 
+                 observation_dim, 
+                 num_action, 
+                 hidden_size=64, 
+                 activation_fn=nn.Tanh,
+                 net_arch=None,
+                 optimizer=optim.Adam,
+                 optimizer_kwargs={"lr":3e-4}
+                ):
+        
+        super(VPGActor, self).__init__()
+        
+        self.observation_dim = observation_dim
+        self.num_action = num_action
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        self.net_arch = net_arch
+        
+        if net_arch is not None:
+            in_features = observation_dim
+            self.model = nn.ModuleList()
+            for i, out_features in enumerate(net_arch):
+                self.model.append(nn.Linear(in_features, out_features))
+                if i != len(net_arch) - 1:
+                    self.model.append(activation_fn())
+                in_features = out_features
+        
+        else:
+            self.model = nn.Sequential(
+                nn.Linear(observation_dim, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, num_action),
+                )
+        
+        logstds_param = nn.Parameter(torch.full((num_action,), 0.1))
+        self.register_parameter("logstds", logstds_param)
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+    
+    def forward(self, x):
+        if self.net_arch is not None:
+            for i, layer in enumerate(self.model):
+                x = layer(x)
+            means = x
+        else:
+            means = self.model(x)
+         
+        stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
+        return torch.distributions.Normal(means, stds) 
 
-class VCritic(nn.Module):
+class ACKTRCritic(nn.Module):
     def __init__(self, 
                  observation_dim, 
                  hidden_size=64, 
                  activation_fn=nn.Tanh, 
-                 net_arch=None
+                 net_arch=None,
+                 optimizer_kwargs={"lr":0.25},
                 ):
         
-        super(VCritic, self).__init__()
+        super(ACKTRCritic, self).__init__()
         
         self.observation_dim = observation_dim
         self.hidden_size = hidden_size
@@ -148,7 +240,7 @@ class VCritic(nn.Module):
                 nn.Linear(hidden_size, 1),
             )
         
-        self.optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
         
     def forward(self, x):
         if self.net_arch is not None:
@@ -157,8 +249,7 @@ class VCritic(nn.Module):
         else:
             x = self.model(x)
         return x
-        
-
+    
 class QCritic(nn.Module):
     def __init__(self, 
                  observation_dim,
@@ -207,21 +298,19 @@ class QCritic(nn.Module):
             x = self.fc_q2(x)
         return x
     
-    
-class DeepQNetwork(nn.Module):
+class VCritic(nn.Module):
     def __init__(self, 
                  observation_dim, 
-                 num_action, 
                  hidden_size=64, 
-                 activation_fn=nn.Tanh,
+                 activation_fn=nn.Tanh, 
                  net_arch=None,
                  optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":1e-3}
+                 optimizer_kwargs={"lr":1e-3},
                 ):
-        super(DeepQNetwork, self).__init__()
+        
+        super(VCritic, self).__init__()
         
         self.observation_dim = observation_dim
-        self.num_action = num_action
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
         self.net_arch = net_arch
@@ -234,18 +323,17 @@ class DeepQNetwork(nn.Module):
                 if i != len(net_arch) - 1:
                     self.model.append(activation_fn())
                 in_features = out_features
-        
         else:
             self.model = nn.Sequential(
                 nn.Linear(observation_dim, hidden_size),
                 activation_fn(),
                 nn.Linear(hidden_size, hidden_size),
                 activation_fn(),
-                nn.Linear(hidden_size, num_action),
-                )
+                nn.Linear(hidden_size, 1),
+            )
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
-    
+        
     def forward(self, x):
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):

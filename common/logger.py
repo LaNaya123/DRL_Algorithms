@@ -1,10 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Thu Aug  4 13:29:12 2022
-
-@author: lanaya
-"""
-
 import csv
 import os
 

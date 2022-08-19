@@ -4,7 +4,7 @@ import random
 import torch
 from gym import spaces
 from collections import deque
-from common.models import ContinuousActor, VCritic
+from common.models import VPGActor, ACKTRActor, VCritic
 from common.buffers import RolloutBuffer
 from common.utils import obs_to_tensor, safe_mean
 from common.logger import Logger
@@ -19,6 +19,7 @@ class OnPolicyAlgorithm():
                  td_method,
                  gamma,
                  gae_lambda,
+                 max_grad_norm, 
                  verbose,
                  log_dir,
                  log_interval,
@@ -34,6 +35,7 @@ class OnPolicyAlgorithm():
         self.td_method = td_method
         self.gamma = gamma
         self.gae_lambda = gae_lambda
+        self.max_grad_norm = max_grad_norm
         self.verbose = verbose
         self.log_dir = log_dir
         self.log_interval = log_interval
@@ -45,37 +47,20 @@ class OnPolicyAlgorithm():
             self.device = torch.device(device)
         if self.verbose > 0:
             print(f"Using the device: {self.device}")
-
+        
+        self._set_seed()
+        
         self._setup_model()
         
         self._setup_param()
         
         self._setup_logger()
         
-        self._set_seed()
-
     def _setup_model(self):
-        observation_dim = self.env.observation_space.shape[0]
-        
-        if isinstance(self.env.action_space, spaces.Discrete):
-            num_action = self.env.action_space.n
-        elif isinstance(self.env.action_space, spaces.Box):
-            num_action = self.env.action_space.shape[0]
-
-        self.actor = ContinuousActor(observation_dim, num_action, **self.actor_kwargs)
-
-        self.critic = VCritic(observation_dim, **self.critic_kwargs)
-        
-        if self.verbose > 0:
-            print(self.actor)
-            print(self.critic)
-        
-        self.buffer = RolloutBuffer(self.rollout_steps)
-        
-        self.obs = self.env.reset()
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def _setup_param(self):
-        self.episode_info_buffer = deque(maxlen=10)
+        self.episode_info_buffer = deque(maxlen=4)
         
         self.num_episode = 0
         
@@ -94,7 +79,6 @@ class OnPolicyAlgorithm():
             print(f"Setting the random seed to {self.seed}")
         
         random.seed(self.seed)
-        
         np.random.seed(self.seed)
 
         torch.manual_seed(self.seed)
@@ -123,27 +107,10 @@ class OnPolicyAlgorithm():
                     self.logger.log_count += 1
                     
     def rollout(self):
-        self.buffer.reset()
-        
-        for i in range(self.rollout_steps):
-            dists = self.actor(obs_to_tensor(self.obs))
-            
-            action = dists.sample().detach().numpy()
-            
-            action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
-
-            next_obs, reward, done, info = self.env.step(action_clipped)
-            
-            self.buffer.add((self.obs, action, reward, next_obs, done))
-            
-            self.obs = next_obs
-            
-            self.current_timesteps += self.env.num_envs
-            
-            self._update_episode_info(info)
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
     def train(self):
-        raise NotImplementedError
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def learn(self):
         training_iterations = 0
@@ -202,16 +169,16 @@ class OffPolicyAlgorithm():
         if self.verbose > 0:
             print(f"Using the device: {self.device}")
         
+        self._set_seed()
+        
         self._setup_model()
         
         self._setup_param()
         
         self._setup_logger()
         
-        self._set_seed()
-        
     def _setup_model(self):
-        raise NotImplementedError
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def _setup_param(self):
         self.episode_info_buffer = deque(maxlen=10)
@@ -262,10 +229,10 @@ class OffPolicyAlgorithm():
                     self.logger.log_count += 1
                 
     def rollout(self):
-        raise NotImplementedError
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
     def train(self):
-        raise NotImplementedError
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def learn(self):
         self.training_iterations = 0
