@@ -92,9 +92,9 @@ class DQN(OffPolicyAlgorithm):
                 action = q.argmax(dim=-1, keepdim=True).detach().numpy()
 
             next_obs, reward, done, info = self.env.step(action)
-            
+
             self.buffer.add((self.obs, action, reward, next_obs, done))
-            
+
             self.obs = next_obs
             
             self.current_timesteps += self.env.num_envs
@@ -129,7 +129,7 @@ class DQN(OffPolicyAlgorithm):
             self.qnet.optimizer.zero_grad()
             loss.backward()
             self.qnet.optimizer.step()
-            
+
             if self.training_iterations % self.target_update_interval == 0:
                 self.target_qnet.load_state_dict(self.qnet.state_dict())
 

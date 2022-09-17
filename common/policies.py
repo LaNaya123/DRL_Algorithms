@@ -170,7 +170,7 @@ class OffPolicyAlgorithm():
             print(f"Using the device: {self.device}")
         
         self._set_seed()
-        
+
         self._setup_model()
         
         self._setup_param()
