@@ -101,7 +101,7 @@ def get_dataset(dataset_dir):
             
             with open(f"{pkl_file_path}.pkl", "wb") as f:
                 pickle.dump(trajectories, f)
-            
+       
 class Mish(nn.Module):
     def __init__(self): 
         super().__init__()
@@ -306,4 +306,45 @@ class DecisionTransformer(nn.Module):
         obs_preds = self.predict_obs(hidden_states[:,2])    
         act_preds = self.predict_act(hidden_states[:,1])  
         return rtg_preds, obs_preds, act_preds
+
+class VAE(nn.Module):
+    def __init__(self, observation_dim, num_actions, latent_dim, max_action):
+        super(VAE, self).__init__()
+        
+        self.latent_dim = latent_dim
+        self.max_action = torch.from_numpy(max_action)
+        
+        self.e1 = nn.Linear(observation_dim + num_actions, 750)
+        self.e2 = nn.Linear(750, 750)
+        
+        self.mean = nn.Linear(750, latent_dim)
+        
+        self.log_std = nn.Linear(750, latent_dim)
+        
+        self.d1 = nn.Linear(observation_dim + latent_dim, 750)
+        self.d2 = nn.Linear(750, 750)
+        self.d3 = nn.Linear(750, num_actions)
     
+    def forward(self, observation, action):
+        z = F.relu(self.e1(torch.cat([observation, action], 1)))
+        z = F.relu(self.e2(z))
+        
+        mean = self.mean(z)
+        
+        log_std = self.log_std(z).clamp(-4, 15)
+        std = torch.exp(log_std)
+        
+        z = mean + std * torch.randn_like(std)
+        
+        a = self.decode(observation, z)
+        
+        return a, mean, std
+    
+    def decode(self, observation, z=None):
+        if z is None:
+            z = torch.randn((observation.shape[0], self.latent_dim)).clamp(-0.5,0.5)
+            
+        a = F.relu(self.d1(torch.cat([observation, z], 1)))
+        a = F.relu(self.d2(a))
+        a = F.tanh(self.d3(a)) * self.max_action
+        return a

@@ -68,5 +68,3 @@ class DT():
                  self.optimizer.zero_grad()
                  loss.backward()
                  self.optimizer.step()  
-                 
-    def inference():

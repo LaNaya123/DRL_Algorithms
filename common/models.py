@@ -58,6 +58,62 @@ class ACKTRActor(nn.Module):
         stds = torch.clamp(logstds.exp(), 7e-4, 50)
         return torch.distributions.Normal(means, stds) 
 
+class BCQActor(nn.Module):
+    def __init__(self,
+                 observation_dim,
+                 num_actions,
+                 max_action,
+                 hidden_size=64,
+                 activation_fn=nn.Tanh,
+                 net_arch=None,
+                 optimizer=optim.Adam,
+                 optimizer_kwargs={"lr":3e-4},
+                 max_perturbation=0.05,
+                ):
+        
+        super(BCQActor, self).__init__()
+        
+        self.observation_dim = observation_dim
+        self.num_actions = num_actions
+        self.max_action = torch.from_numpy(max_action)
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        self.net_arch = net_arch
+        self.max_perturbation = max_perturbation
+        
+        if net_arch is not None:
+            in_features = observation_dim
+            self.model = nn.ModuleList()
+            for i, out_features in enumerate(net_arch):
+                self.model.append(nn.Linear(in_features, out_features))
+                if i != len(net_arch) - 1:
+                    self.model.append(activation_fn())
+                else:
+                    self.model.append(nn.Tanh())
+                in_features = out_features
+        else:
+            self.model = nn.Sequential(
+                nn.Linear(observation_dim + num_actions, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, num_actions),
+                nn.Tanh(),
+                )
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+    
+    def forward(self, x_s, x_a):
+        x = torch.cat([x_s, x_a], dim=1)
+        if self.net_arch is not None:
+            for i, layer in enumerate(self.model):
+                x = layer(x)
+        else: 
+            x = self.model(x)
+        x = self.max_perturbation * self.max_action * x
+        x = (x + x_a).clamp(-self.max_action, self.max_action)
+        return x
+        
 class DeepQNetwork(nn.Module):
     def __init__(self, 
                  observation_dim, 

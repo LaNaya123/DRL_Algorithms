@@ -149,4 +149,5 @@ if __name__ == "__main__":
               actor_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":5e-4}}, 
               critic_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}},
               ou_noise=ou_noise)
-    ddpg.learn()       
+    ddpg.learn()
+    print(len(ddpg.buffer))

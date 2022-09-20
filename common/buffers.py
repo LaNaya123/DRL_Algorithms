@@ -47,6 +47,8 @@ class RolloutBuffer():
         
         return obs, actions, rewards, next_obs, dones
     
+    def __len__(self):
+        return len(self.buffer)
     
 class ReplayBuffer():
     def __init__(self, buffer_size):
@@ -96,6 +98,9 @@ class ReplayBuffer():
         dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones)))
         
         return obs, actions, rewards, next_obs, dones
+    
+    def __len__(self):
+        return len(self.buffer)
     
 class SharedReplayBuffer():
     def __init__(self, buffer_size, num_envs, observation_dim):
