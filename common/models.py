@@ -44,7 +44,7 @@ class ACKTRActor(nn.Module):
         
         self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
     
-    def forward(self, x):
+    def forward(self, x, device):
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)
@@ -52,7 +52,7 @@ class ACKTRActor(nn.Module):
         else:
             means = self.model(x)
         
-        zeros = torch.zeros(means.size())
+        zeros = torch.zeros(means.size()).to(device)
         logstds = self.logstds(zeros)
          
         stds = torch.clamp(logstds.exp(), 7e-4, 50)
@@ -75,7 +75,7 @@ class BCQActor(nn.Module):
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
-        self.max_action = torch.from_numpy(max_action)
+        self.max_action = max_action
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
         self.net_arch = net_arch

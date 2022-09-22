@@ -312,7 +312,7 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
         
         self.latent_dim = latent_dim
-        self.max_action = torch.from_numpy(max_action)
+        self.max_action = max_action
         
         self.e1 = nn.Linear(observation_dim + num_actions, 750)
         self.e2 = nn.Linear(750, 750)
@@ -340,9 +340,9 @@ class VAE(nn.Module):
         
         return a, mean, std
     
-    def decode(self, observation, z=None):
+    def decode(self, observation, device, z=None):
         if z is None:
-            z = torch.randn((observation.shape[0], self.latent_dim)).clamp(-0.5,0.5)
+            z = torch.randn((observation.shape[0], self.latent_dim)).clamp(-0.5,0.5).to(device)
             
         a = F.relu(self.d1(torch.cat([observation, z], 1)))
         a = F.relu(self.d2(a))

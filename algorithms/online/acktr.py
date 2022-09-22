@@ -29,7 +29,7 @@ class ACKTR(OnPolicyAlgorithm):
                  log_dir=None,
                  log_interval=100,
                  device="auto",
-                 seed=12,
+                 seed=0,
                  ):
         
         super(ACKTR, self).__init__(
@@ -57,15 +57,15 @@ class ACKTR(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             num_action = self.env.action_space.shape[0]
 
-        self.actor = ACKTRActor(observation_dim, num_action, **self.actor_kwargs)
+        self.actor = ACKTRActor(observation_dim, num_action, **self.actor_kwargs).to(self.device)
 
-        self.critic = ACKTRCritic(observation_dim, **self.critic_kwargs)
+        self.critic = ACKTRCritic(observation_dim, **self.critic_kwargs).to(self.device)
         
         if self.verbose > 0:
             print(self.actor)
             print(self.critic)
         
-        self.buffer = RolloutBuffer(self.rollout_steps)
+        self.buffer = RolloutBuffer(self.rollout_steps, self.device)
         
         self.obs = self.env.reset()
         
@@ -75,11 +75,10 @@ class ACKTR(OnPolicyAlgorithm):
         with torch.no_grad():
             
             for i in range(self.rollout_steps):
-                obs = obs_to_tensor(self.obs)
+                dists = self.actor(obs_to_tensor(self.obs).to(self.device), self.device)
                 
-                dists = self.actor(obs)
+                action = dists.sample().cpu().detach().numpy()
                 
-                action = dists.sample().detach().numpy()
                 if not self.env.is_vec:
                     action = action.squeeze(axis=0)
 
@@ -119,6 +118,7 @@ class ACKTR(OnPolicyAlgorithm):
                         last_value = self.critic(next_obs[-1])
             
                 target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
+                target_values = target_values.to(self.device)
                 
                 advantages = target_values - values
                 
@@ -130,12 +130,13 @@ class ACKTR(OnPolicyAlgorithm):
                         last_value = self.critic(next_obs[-1])
             
                 advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
+                advantages = advantages.to(self.device)
                 
                 target_values = advantages + values
                 
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             
-            dists = self.actor(obs)
+            dists = self.actor(obs, self.device)
             
             log_probs = dists.log_prob(actions)
              
@@ -162,7 +163,7 @@ class ACKTR(OnPolicyAlgorithm):
             if self.critic.optimizer.steps % self.critic.optimizer.Ts == 0:
                 self.critic.zero_grad()
                 
-                value_noise = torch.randn(values.size())
+                value_noise = torch.randn(values.size()).to(self.device)
                 
                 sample_values = values + value_noise
                 
@@ -186,7 +187,7 @@ class ACKTR(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    env = VecEnv(env, num_envs=4)
+    #env = VecEnv(env, num_envs=4)
     acktr = ACKTR(env, 
               rollout_steps=8, 
               total_timesteps=5e5, 
@@ -195,6 +196,6 @@ if __name__ == "__main__":
               max_grad_norm=0.05,
               td_method="td_lambda",
               log_dir=None,
-              seed=14,
+              seed=12,
              )
     acktr.learn()

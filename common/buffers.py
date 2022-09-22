@@ -7,8 +7,10 @@ from collections import deque
 from common.utils import swap_and_flatten
 
 class RolloutBuffer():
-    def __init__(self, buffer_size):
+    def __init__(self, buffer_size, device):
         self.buffer_size = buffer_size
+        self.device = device
+        
         self.buffer = []
         
     def reset(self):
@@ -39,11 +41,11 @@ class RolloutBuffer():
             next_obs.append(next_ob)
             dones.append(done)
         
-        obs = torch.FloatTensor(swap_and_flatten(np.asarray(obs)))
-        actions = torch.FloatTensor(swap_and_flatten(np.asarray(actions)))
-        rewards = torch.FloatTensor(swap_and_flatten(np.asarray(rewards)))
-        next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs)))
-        dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones)))
+        obs = torch.FloatTensor(swap_and_flatten(np.asarray(obs))).to(self.device)
+        actions = torch.FloatTensor(swap_and_flatten(np.asarray(actions))).to(self.device)
+        rewards = torch.FloatTensor(swap_and_flatten(np.asarray(rewards))).to(self.device)
+        next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs))).to(self.device)
+        dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones))).to(self.device)
         
         return obs, actions, rewards, next_obs, dones
     
@@ -51,9 +53,10 @@ class RolloutBuffer():
         return len(self.buffer)
     
 class ReplayBuffer():
-    def __init__(self, buffer_size):
+    def __init__(self, buffer_size, device):
         self.buffer_size = buffer_size
         self.buffer = deque(maxlen=buffer_size)
+        self.device = device
         
     def add(self, transition):
         self.buffer.append(transition)
@@ -91,11 +94,11 @@ class ReplayBuffer():
             next_obs.append(next_ob)
             dones.append(done)
         
-        obs = torch.FloatTensor(swap_and_flatten(np.asarray(obs)))
-        actions = torch.FloatTensor(swap_and_flatten(np.asarray(actions)))
-        rewards = torch.FloatTensor(swap_and_flatten(np.asarray(rewards)))
-        next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs)))
-        dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones)))
+        obs = torch.FloatTensor(swap_and_flatten(np.asarray(obs))).to(self.device)
+        actions = torch.FloatTensor(swap_and_flatten(np.asarray(actions))).to(self.device)
+        rewards = torch.FloatTensor(swap_and_flatten(np.asarray(rewards))).to(self.device)
+        next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs))).to(self.device)
+        dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones))).to(self.device)
         
         return obs, actions, rewards, next_obs, dones
     

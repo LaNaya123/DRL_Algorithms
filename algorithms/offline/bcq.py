@@ -54,6 +54,13 @@ class BCQ():
         self.actor_kwargs = {} if actor_kwargs is None else actor_kwargs
         self.critic_kwargs = {} if critic_kwargs is None else critic_kwargs
         
+        if device == "auto":
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device(device)
+        if self.verbose > 0:
+            print(f"Using the device: {self.device}")
+        
         if seed:
             random.seed(seed)
             np.random.seed(seed)
@@ -61,24 +68,26 @@ class BCQ():
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
             self.env.seed(seed)
+            if self.verbose > 0:
+                print(f"Setting the random seed to {self.seed}")
             
         observation_dim = self.env.observation_space.shape[0]
         num_actions = self.env.action_space.shape[0]
-        max_action = self.env.action_space.high
+        max_action = torch.from_numpy(self.env.action_space.high).to(self.device)
         
-        self.actor = BCQActor(observation_dim, num_actions, max_action, **self.actor_kwargs)
-        self.target_actor = BCQActor(observation_dim, num_actions, max_action, **self.actor_kwargs)
+        self.actor = BCQActor(observation_dim, num_actions, max_action, **self.actor_kwargs).to(self.device)
+        self.target_actor = BCQActor(observation_dim, num_actions, max_action, **self.actor_kwargs).to(self.device)
         self.target_actor.load_state_dict(self.actor.state_dict())
         
-        self.critic1 = QCritic(observation_dim, num_actions, **self.critic_kwargs)
-        self.target_critic1 = QCritic(observation_dim, num_actions, **self.critic_kwargs)
+        self.critic1 = QCritic(observation_dim, num_actions, **self.critic_kwargs).to(self.device)
+        self.target_critic1 = QCritic(observation_dim, num_actions, **self.critic_kwargs).to(self.device)
         self.target_critic1.load_state_dict(self.critic1.state_dict())
         
-        self.critic2 = QCritic(observation_dim, num_actions, **self.critic_kwargs)
-        self.target_critic2 = QCritic(observation_dim, num_actions, **self.critic_kwargs)
+        self.critic2 = QCritic(observation_dim, num_actions, **self.critic_kwargs).to(self.device)
+        self.target_critic2 = QCritic(observation_dim, num_actions, **self.critic_kwargs).to(self.device)
         self.target_critic2.load_state_dict(self.critic2.state_dict())
         
-        self.vae = VAE(observation_dim, num_actions, num_actions * 2, self.env.action_space.high)
+        self.vae = VAE(observation_dim, num_actions, num_actions * 2, max_action).to(self.device)
         self.vae_optimizer = optim.Adam(self.vae.parameters())
         
         if self.verbose > 0:
@@ -96,17 +105,17 @@ class BCQ():
     
     def _act(self, obs):
         with torch.no_grad():
-            obs = torch.FloatTensor(obs.reshape(1, -1)).repeat(100, 1)
-            acts = self.actor(obs, self.vae.decode(obs))
+            obs = torch.FloatTensor(obs.reshape(1, -1)).repeat(100, 1).to(self.device)
+            acts = self.actor(obs, self.vae.decode(obs, self.device))
             q = self.critic1(obs, acts)
             ind = q.argmax(0)
             
-        return acts[ind].numpy().flatten()
+        return acts[ind].cpu().numpy().flatten()
             
     def _train(self):
         for iteration in range(self.num_iterations):
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
-
+            
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
             assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
@@ -123,7 +132,7 @@ class BCQ():
             with torch.no_grad():
                 next_obs = torch.repeat_interleave(next_obs, self.num_samples, 0)
             
-                target_acts = self.target_actor(next_obs, self.vae.decode(next_obs))
+                target_acts = self.target_actor(next_obs, self.vae.decode(next_obs, self.device))
 
                 target_q1 = self.target_critic1(next_obs, target_acts)
                 
@@ -147,7 +156,7 @@ class BCQ():
             critic2_loss.backward()
             self.critic2.optimizer.step()
             
-            sampled_actions = self.vae.decode(obs)
+            sampled_actions = self.vae.decode(obs, self.device)
             perturbed_actions = self.actor(obs, sampled_actions)
             
             actor_loss = -self.critic1(obs, perturbed_actions).mean()
@@ -199,7 +208,7 @@ if __name__ == "__main__":
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
     
     ddpg = DDPG(env, 
-              total_timesteps=3e4, 
+              total_timesteps=1e3, 
               gradient_steps=4,
               rollout_steps=8, 
               learning_start=500,

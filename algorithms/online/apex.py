@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 import gym
@@ -28,7 +27,6 @@ class APEX(OffPolicyAlgorithm):
                  verbose=1,
                  log_dir=None,
                  log_interval=10,
-                 device="auto",
                  seed=None,
                  qnet_kwargs=None,
                  exploration_initial_eps=0.2,
@@ -64,7 +62,7 @@ class APEX(OffPolicyAlgorithm):
                  verbose,
                  log_dir,
                  log_interval,
-                 device,
+                 "cpu",
                  seed,
                 )
         

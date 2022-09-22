@@ -14,7 +14,6 @@ from common.policies import OnPolicyAlgorithm
 from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
 from common.kfac import KFACOptimizer
 
-    
 class VPG(OnPolicyAlgorithm):
     def __init__(self, 
                  env, 
@@ -58,15 +57,15 @@ class VPG(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             num_action = self.env.action_space.shape[0]
 
-        self.actor = VPGActor(observation_dim, num_action, **self.actor_kwargs)
+        self.actor = VPGActor(observation_dim, num_action, **self.actor_kwargs).to(self.device)
 
-        self.critic = VCritic(observation_dim, **self.critic_kwargs)
+        self.critic = VCritic(observation_dim, **self.critic_kwargs).to(self.device)
         
         if self.verbose > 0:
             print(self.actor)
             print(self.critic)
         
-        self.buffer = RolloutBuffer(self.rollout_steps)
+        self.buffer = RolloutBuffer(self.rollout_steps, self.device)
         
         self.obs = self.env.reset()
         
@@ -74,9 +73,9 @@ class VPG(OnPolicyAlgorithm):
         self.buffer.reset()
         with torch.no_grad():
             for i in range(self.rollout_steps):
-                dists = self.actor(obs_to_tensor(self.obs))
+                dists = self.actor(obs_to_tensor(self.obs).to(self.device))
             
-                action = dists.sample().detach().numpy()
+                action = dists.sample().cpu().detach().numpy()
 
                 action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
 
@@ -113,6 +112,7 @@ class VPG(OnPolicyAlgorithm):
                     last_value = self.critic(next_obs[-1])
             
                 target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
+                target_values = target_values.to(self.device)
                 
                 advantages = target_values - values
                 
@@ -123,6 +123,7 @@ class VPG(OnPolicyAlgorithm):
                     last_value = self.critic(next_obs[-1])
             
                 advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
+                advantages = advantages.to(self.device)
                 
                 target_values = advantages + values
                 

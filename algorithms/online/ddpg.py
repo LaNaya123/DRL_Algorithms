@@ -61,19 +61,19 @@ class DDPG(OffPolicyAlgorithm):
         
         num_action = self.env.action_space.shape[0]
         
-        self.actor = DDPGActor(observation_dim, num_action, **self.actor_kwargs)
-        self.target_actor = DDPGActor(observation_dim, num_action, **self.actor_kwargs)
+        self.actor = DDPGActor(observation_dim, num_action, **self.actor_kwargs).to(self.device)
+        self.target_actor = DDPGActor(observation_dim, num_action, **self.actor_kwargs).to(self.device)
         self.target_actor.load_state_dict(self.actor.state_dict())
         
-        self.critic = QCritic(observation_dim, num_action, **self.critic_kwargs)
-        self.target_critic = QCritic(observation_dim, num_action, **self.critic_kwargs)
+        self.critic = QCritic(observation_dim, num_action, **self.critic_kwargs).to(self.device)
+        self.target_critic = QCritic(observation_dim, num_action, **self.critic_kwargs).to(self.device)
         self.target_critic.load_state_dict(self.critic.state_dict())
             
         if self.verbose > 0:
             print(self.actor)
             print(self.critic)
 
-        self.buffer = ReplayBuffer(self.buffer_size)
+        self.buffer = ReplayBuffer(self.buffer_size, self.device)
         
         self.obs = self.env.reset()
         
@@ -83,7 +83,7 @@ class DDPG(OffPolicyAlgorithm):
         
     def rollout(self):
         for i in range(self.rollout_steps):
-            action = self.actor(obs_to_tensor(self.obs)).detach().numpy()
+            action = self.actor(obs_to_tensor(self.obs).to(self.device)).cpu().detach().numpy()
             
             action *= self.env.action_space.high
             
@@ -150,4 +150,3 @@ if __name__ == "__main__":
               critic_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}},
               ou_noise=ou_noise)
     ddpg.learn()
-    print(len(ddpg.buffer))

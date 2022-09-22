@@ -144,7 +144,9 @@ class KFACOptimizer(optim.Optimizer):
     def _save_input(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.Ts == 0:
             classname = module.__class__.__name__
+            
             layer_info = None
+            
             if classname == 'Conv2d':
                 layer_info = (module.kernel_size, module.stride,
                               module.padding)

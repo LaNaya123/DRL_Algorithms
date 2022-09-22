@@ -63,14 +63,14 @@ class DQN(OffPolicyAlgorithm):
         
         num_action = self.env.action_space.n
         
-        self.qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs)
-        self.target_qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs)
+        self.qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs).to(self.device)
+        self.target_qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs).to(self.device)
         self.target_qnet.load_state_dict(self.qnet.state_dict())
             
         if self.verbose > 0:
             print(self.qnet) 
 
-        self.buffer = ReplayBuffer(self.buffer_size)
+        self.buffer = ReplayBuffer(self.buffer_size, self.device)
         
         self.obs = self.env.reset()
         
@@ -82,14 +82,14 @@ class DQN(OffPolicyAlgorithm):
         
     def rollout(self):
         for i in range(self.rollout_steps):
-            q = self.qnet(obs_to_tensor(self.obs))
+            q = self.qnet(obs_to_tensor(self.obs).to(self.device))
             
             coin = random.random()
             if coin < self.current_eps:
                 action = [random.randint(0, self.env.action_space.n - 1) for _ in range(self.env.num_envs)]
                 action = np.asarray(action)[:, np.newaxis]
             else:
-                action = q.argmax(dim=-1, keepdim=True).detach().numpy()
+                action = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
 
             next_obs, reward, done, info = self.env.step(action)
 
@@ -107,7 +107,7 @@ class DQN(OffPolicyAlgorithm):
     def train(self):
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
-            actions = actions.type("torch.LongTensor")
+            actions = actions.type("torch.LongTensor").to(self.device)
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
@@ -122,7 +122,7 @@ class DQN(OffPolicyAlgorithm):
             
             q_values = self.qnet(obs)
             
-            q_a = q_values.gather(1,actions)
+            q_a = q_values.gather(1, actions)
 
             loss = F.smooth_l1_loss(q_a, q_target)
 
