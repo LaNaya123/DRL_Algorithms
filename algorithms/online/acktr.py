@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import gym
 import numpy as np
 import torch
@@ -16,20 +17,20 @@ from common.kfac import KFACOptimizer
 
 class ACKTR(OnPolicyAlgorithm):
     def __init__(self, 
-                 env, 
-                 rollout_steps, 
-                 total_timesteps, 
-                 actor_kwargs=None,
-                 critic_kwargs=None,
-                 td_method="td_lambda",
-                 gamma=0.99,
-                 gae_lambda=0.95,
-                 max_grad_norm=None,
-                 verbose=1,
-                 log_dir=None,
-                 log_interval=100,
-                 device="auto",
-                 seed=0,
+                 env: Union[Monitor, VecEnv], 
+                 rollout_steps: int = 16, 
+                 total_timesteps: int = 1e5, 
+                 actor_kwargs: Optional[Dict[str, Any]] = None,
+                 critic_kwargs: Optional[Dict[str, Any]] = None,
+                 td_method: str = "td_lambda",
+                 gamma: float = 0.99,
+                 gae_lambda: float = 0.95,
+                 max_grad_norm: Optional[float] = None,
+                 verbose: int = 1,
+                 log_dir: str = None,
+                 log_interval: int = 100,
+                 device: str = "auto",
+                 seed: int = 0,
                  ):
         
         super(ACKTR, self).__init__(
@@ -49,7 +50,7 @@ class ACKTR(OnPolicyAlgorithm):
             seed,
             )
     
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         observation_dim = self.env.observation_space.shape[0]
         
         if isinstance(self.env.action_space, spaces.Discrete):
@@ -69,7 +70,7 @@ class ACKTR(OnPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def rollout(self):
+    def rollout(self) -> None:
         self.buffer.reset()
         
         with torch.no_grad():
@@ -94,7 +95,7 @@ class ACKTR(OnPolicyAlgorithm):
             
                 self._update_episode_info(info)
         
-    def train(self):
+    def train(self) -> None:
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]

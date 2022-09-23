@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import gym
 import numpy as np
 import torch
@@ -18,22 +19,22 @@ from common.utils import Mish, obs_to_tensor, safe_mean
 class APEX(OffPolicyAlgorithm):
     def __init__(
                  self, 
-                 env, 
-                 num_iterations=1000,
-                 buffer_size=10000,
-                 batch_size=256,
-                 target_update_interval=20,
-                 gamma=0.99,
-                 verbose=1,
-                 log_dir=None,
-                 log_interval=10,
-                 seed=None,
-                 qnet_kwargs=None,
-                 exploration_initial_eps=0.2,
-                 exploration_final_eps=0.05,
-                 exploration_decay_steps=10000,
-                 num_actors=1,
-                 sychronize_freq=2,
+                 env: Monitor, 
+                 num_iterations: int = 1000,
+                 buffer_size: int = 10000,
+                 batch_size: int = 256,
+                 target_update_interval: int = 20,
+                 gamma: float = 0.99,
+                 verbose: int = 1,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 10,
+                 seed: Optional[int] = None,
+                 qnet_kwargs: Optional[Dict[str, Any]] = None,
+                 exploration_initial_eps: float = 0.2,
+                 exploration_final_eps: float = 0.05,
+                 exploration_decay_steps: int = 10000,
+                 num_actors: int = 4,
+                 sychronize_freq: int = 2,
                 ):
     
         self.qnet_kwargs = qnet_kwargs
@@ -66,7 +67,7 @@ class APEX(OffPolicyAlgorithm):
                  seed,
                 )
         
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         observation_dim = self.env.observation_space.shape[0]
         
         num_actions = self.env.action_space.n
@@ -87,7 +88,7 @@ class APEX(OffPolicyAlgorithm):
         
         self.buffer = SharedReplayBuffer(self.buffer_size, num_envs, observation_dim)
         
-    def _setup_param(self):
+    def _setup_param(self) -> None:
         manager = mp.Manager()
         
         self.shared_dict = manager.dict()
@@ -102,7 +103,7 @@ class APEX(OffPolicyAlgorithm):
         
         self.lock = manager.Lock()
         
-    def _update_episode_info(self, infos):
+    def _update_episode_info(self, infos) -> None:
         if isinstance(infos, dict):
             infos = [infos]
             
@@ -117,14 +118,14 @@ class APEX(OffPolicyAlgorithm):
             
                     self.num_episode.value += 1
         
-    def _update_exploration_eps(self):
+    def _update_exploration_eps(self) -> None:
         if self.current_eps == self.exploration_final_eps:
             return 
         self.current_eps = self.exploration_initial_eps - ((self.exploration_initial_eps - self.exploration_final_eps) / self.exploration_decay_steps) \
                            * self.current_timesteps.value
         self.current_eps = max(self.current_eps, self.exploration_final_eps)
         
-    def rollout(self):
+    def rollout(self) -> None:
         while self.training_iterations.value < self.num_iterations:
             q = self.actor(obs_to_tensor(self.obs))
             
@@ -150,7 +151,7 @@ class APEX(OffPolicyAlgorithm):
             if self.training_iterations.value != 0 and self.training_iterations.value % self.sychronize_freq == 0:
                 self.actor.load_state_dict(self.shared_dict["model_state_dict"])
     
-    def train(self):
+    def train(self) -> None:
         while self.training_iterations.value < self.num_iterations:
             if len(self.buffer) < self.batch_size:
                 continue
@@ -192,7 +193,7 @@ class APEX(OffPolicyAlgorithm):
                       "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                      )
             
-    def learn(self):
+    def learn(self) -> None:
         p = mp.Process(target=self.train, args=(()))
         p.start()
         

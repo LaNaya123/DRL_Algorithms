@@ -1,30 +1,29 @@
 # -*- coding: utf-8 -*-
+from typing import Union, Optional, Any, Dict
 import numpy as np
 import random
 import torch
-from gym import spaces
 from collections import deque
-from common.models import VPGActor, ACKTRActor, VCritic
-from common.buffers import RolloutBuffer
-from common.utils import obs_to_tensor, safe_mean
+from common.envs import Monitor, VecEnv
+from common.utils import safe_mean
 from common.logger import Logger
     
 class OnPolicyAlgorithm():
     def __init__(self, 
-                 env, 
-                 rollout_steps,
-                 total_timesteps, 
-                 actor_kwargs,
-                 critic_kwargs,
-                 td_method,
-                 gamma,
-                 gae_lambda,
-                 max_grad_norm, 
-                 verbose,
-                 log_dir,
-                 log_interval,
-                 device,
-                 seed,
+                 env: Union[Monitor, VecEnv],
+                 rollout_steps: int,
+                 total_timesteps: int, 
+                 actor_kwargs: Dict[str, Any],
+                 critic_kwargs: Dict[str, Any],
+                 td_method: str,
+                 gamma: float,
+                 gae_lambda: float,
+                 max_grad_norm: float, 
+                 verbose: int,
+                 log_dir: Optional[str],
+                 log_interval: int,
+                 device: str,
+                 seed: Optional[int],
                  ):
         
         self.env = env
@@ -56,23 +55,23 @@ class OnPolicyAlgorithm():
         
         self._setup_logger()
         
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
-    def _setup_param(self):
+    def _setup_param(self) -> None:
         self.episode_info_buffer = deque(maxlen=4)
         
         self.num_episode = 0
         
         self.current_timesteps = 0
         
-    def _setup_logger(self):
+    def _setup_logger(self) -> None:
         if self.log_dir is None:
             self.logger = None
         else:
             self.logger = Logger(self.log_dir)
         
-    def _set_seed(self):
+    def _set_seed(self) -> None:
         if self.seed is None:
             return
         if self.verbose > 0:
@@ -87,7 +86,7 @@ class OnPolicyAlgorithm():
 
         self.env.seed(self.seed)
     
-    def _update_episode_info(self, infos):
+    def _update_episode_info(self, infos) -> None:
         if isinstance(infos, dict):
             infos = [infos]
         for info in infos:
@@ -106,13 +105,13 @@ class OnPolicyAlgorithm():
                     self.logger.write(data)
                     self.logger.log_count += 1
                     
-    def rollout(self):
+    def rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
-    def train(self):
+    def train(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
-    def learn(self):
+    def learn(self) -> None:
         training_iterations = 0
         
         while self.current_timesteps < self.total_timesteps:
@@ -132,20 +131,20 @@ class OnPolicyAlgorithm():
                  
 class OffPolicyAlgorithm():
     def __init__(self, 
-                 env, 
-                 rollout_steps,
-                 total_timesteps, 
-                 gradient_steps,
-                 learning_start,
-                 buffer_size,
-                 batch_size,
-                 target_update_interval,
-                 gamma,
-                 verbose,
-                 log_dir,
-                 log_interval,
-                 device,
-                 seed,
+                 env: Union[Monitor, VecEnv], 
+                 rollout_steps: int,
+                 total_timesteps: int, 
+                 gradient_steps: int,
+                 learning_start: int,
+                 buffer_size: int,
+                 batch_size: int,
+                 target_update_interval: int,
+                 gamma: float,
+                 verbose: int,
+                 log_dir: Optional[str],
+                 log_interval: int,
+                 device: str,
+                 seed: Optional[int],
                  ):
         
         self.env = env
@@ -177,23 +176,23 @@ class OffPolicyAlgorithm():
         
         self._setup_logger()
         
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
-    def _setup_param(self):
+    def _setup_param(self) -> None:
         self.episode_info_buffer = deque(maxlen=10)
         
         self.num_episode = 0
         
         self.current_timesteps = 0
     
-    def _setup_logger(self):
+    def _setup_logger(self) -> None:
         if self.log_dir is None:
             self.logger = None
         else:
             self.logger = Logger(self.log_dir)
             
-    def _set_seed(self):
+    def _set_seed(self) -> None:
         if self.seed is None:
             return
         if self.verbose > 0:
@@ -209,7 +208,7 @@ class OffPolicyAlgorithm():
 
         self.env.seed(self.seed)
     
-    def _update_episode_info(self, infos):
+    def _update_episode_info(self, infos) -> None:
         if isinstance(infos, dict):
             infos = [infos]
         for info in infos:
@@ -228,13 +227,13 @@ class OffPolicyAlgorithm():
                     self.logger.write(data)
                     self.logger.log_count += 1
                 
-    def rollout(self):
+    def rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
-    def train(self):
+    def train(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
-    def learn(self):
+    def learn(self) -> None:
         self.training_iterations = 0
         
         while self.current_timesteps < self.total_timesteps:

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import gym
 import numpy as np
 import torch
@@ -12,24 +13,23 @@ from common.models import VPGActor, VCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
 from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
-from common.kfac import KFACOptimizer
 
 class VPG(OnPolicyAlgorithm):
     def __init__(self, 
-                 env, 
-                 rollout_steps, 
-                 total_timesteps, 
-                 actor_kwargs=None,
-                 critic_kwargs=None,
-                 td_method="td_lambda",
-                 gamma=0.99,
-                 gae_lambda=0.95,
-                 max_grad_norm=0.5,
-                 verbose=1,
-                 log_dir=None,
-                 log_interval=100,
-                 device="auto",
-                 seed=12,
+                 env: Union[Monitor, VecEnv], 
+                 rollout_steps: int = 16, 
+                 total_timesteps: int = 1e5, 
+                 actor_kwargs: Optional[Dict[str, Any]] = None,
+                 critic_kwargs: Optional[Dict[str, Any]] = None,
+                 td_method: str = "td_lambda",
+                 gamma: float = 0.99,
+                 gae_lambda: float = 0.95,
+                 max_grad_norm: float = 0.5,
+                 verbose: int = 1,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 100,
+                 device: str = "auto",
+                 seed: Optional[int] = None,
                  ):
         
         super(VPG, self).__init__(
@@ -49,7 +49,7 @@ class VPG(OnPolicyAlgorithm):
             seed,
             )
     
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         observation_dim = self.env.observation_space.shape[0]
         
         if isinstance(self.env.action_space, spaces.Discrete):
@@ -69,7 +69,7 @@ class VPG(OnPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def rollout(self):
+    def rollout(self) -> None:
         self.buffer.reset()
         with torch.no_grad():
             for i in range(self.rollout_steps):
@@ -89,7 +89,7 @@ class VPG(OnPolicyAlgorithm):
             
                 self._update_episode_info(info)
             
-    def train(self):
+    def train(self) -> None:
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]

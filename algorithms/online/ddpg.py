@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import gym
 import numpy as np
 import torch
@@ -14,24 +15,24 @@ from common.utils import OrnsteinUhlenbeckNoise, Mish, obs_to_tensor
 class DDPG(OffPolicyAlgorithm):
     def __init__(
                  self, 
-                 env, 
-                 rollout_steps=16,
-                 total_timesteps=1e6, 
-                 gradient_steps=4,
-                 learning_start=1000,
-                 buffer_size=10000,
-                 batch_size=256,
-                 target_update_interval=20,
-                 gamma=0.99,
-                 verbose=1,
-                 log_dir=None,
-                 log_interval=10,
-                 device="auto",
-                 seed=None,
-                 actor_kwargs=None,
-                 critic_kwargs=None,
-                 ou_noise=None,
-                 tau=0.95,
+                 env: Union[Monitor, VecEnv], 
+                 rollout_steps: int = 16,
+                 total_timesteps: int = 1e6, 
+                 gradient_steps: int = 4,
+                 learning_start: int = 1000,
+                 buffer_size: int = 10000,
+                 batch_size: int = 256,
+                 target_update_interval: int = 20,
+                 gamma: float = 0.99,
+                 verbose: int = 1,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 10,
+                 device: str = "auto",
+                 seed: Optional[int] = None,
+                 actor_kwargs: Optional[Dict[str, Any]] = None,
+                 critic_kwargs: Optional[Dict[str, Any]] = None,
+                 ou_noise: Optional[OrnsteinUhlenbeckNoise] = None,
+                 tau: float = 0.95,
                 ):
         
         self.actor_kwargs = {} if actor_kwargs is None else actor_kwargs
@@ -56,7 +57,7 @@ class DDPG(OffPolicyAlgorithm):
                  seed,
             )
         
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         observation_dim = self.env.observation_space.shape[0]
         
         num_action = self.env.action_space.shape[0]
@@ -77,11 +78,11 @@ class DDPG(OffPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def _polyak_update(self, online, target):
+    def _polyak_update(self, online, target) -> None:
         for target_param, param in zip(target.parameters(), online.parameters()):
             target_param.data.copy_(param.data * (1.0 - self.tau) + target_param.data * self.tau)
         
-    def rollout(self):
+    def rollout(self) -> None:
         for i in range(self.rollout_steps):
             action = self.actor(obs_to_tensor(self.obs).to(self.device)).cpu().detach().numpy()
             
@@ -100,7 +101,7 @@ class DDPG(OffPolicyAlgorithm):
             
             self._update_episode_info(info)
     
-    def train(self):
+    def train(self) -> None:
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
 
         assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]

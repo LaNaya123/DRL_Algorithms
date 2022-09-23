@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
+from typing import Any, Optional, Type, List, Dict
 import torch 
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributions as distributions
 from common.kfac import AddBias, KFACOptimizer
 
 class ACKTRActor(nn.Module):
     def __init__(self, 
-                 observation_dim, 
-                 num_action, 
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh,
-                 net_arch=None,
-                 optimizer_kwargs={"lr":0.25},
+                 observation_dim: int, 
+                 num_action: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 net_arch: Optional[List[int]] = None,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 0.25},
                 ):
         
         super(ACKTRActor, self).__init__()
@@ -44,7 +46,7 @@ class ACKTRActor(nn.Module):
         
         self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
     
-    def forward(self, x, device):
+    def forward(self, x: torch.Tensor, device: torch.device) -> distributions.Normal:
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)
@@ -56,19 +58,19 @@ class ACKTRActor(nn.Module):
         logstds = self.logstds(zeros)
          
         stds = torch.clamp(logstds.exp(), 7e-4, 50)
-        return torch.distributions.Normal(means, stds) 
+        return distributions.Normal(means, stds) 
 
 class BCQActor(nn.Module):
     def __init__(self,
-                 observation_dim,
-                 num_actions,
-                 max_action,
-                 hidden_size=64,
-                 activation_fn=nn.Tanh,
-                 net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":3e-4},
-                 max_perturbation=0.05,
+                 observation_dim: int,
+                 num_actions: int,
+                 max_action: torch.Tensor,
+                 hidden_size: int = 64,
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 net_arch: Optional[List[int]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4},
+                 max_perturbation: float = 0.05,
                 ):
         
         super(BCQActor, self).__init__()
@@ -103,7 +105,7 @@ class BCQActor(nn.Module):
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def forward(self, x_s, x_a):
+    def forward(self, x_s: torch.Tensor, x_a: torch.Tensor) -> torch.Tensor:
         x = torch.cat([x_s, x_a], dim=1)
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
@@ -116,13 +118,13 @@ class BCQActor(nn.Module):
         
 class DeepQNetwork(nn.Module):
     def __init__(self, 
-                 observation_dim, 
-                 num_action, 
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh,
-                 net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":1e-3}
+                 observation_dim: int, 
+                 num_action: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 net_arch: Optional[List[int]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
                 ):
         super(DeepQNetwork, self).__init__()
         
@@ -152,7 +154,7 @@ class DeepQNetwork(nn.Module):
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)
@@ -162,13 +164,13 @@ class DeepQNetwork(nn.Module):
 
 class DDPGActor(nn.Module):
     def __init__(self, 
-                 observation_dim, 
-                 num_action,
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh,
-                 net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":3e-4}
+                 observation_dim: int, 
+                 num_action: int,
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 net_arch: Optional[List[int]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
                 ):
         
         super(DDPGActor, self).__init__()
@@ -202,7 +204,7 @@ class DDPGActor(nn.Module):
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)
@@ -212,13 +214,13 @@ class DDPGActor(nn.Module):
          
 class VPGActor(nn.Module):
     def __init__(self, 
-                 observation_dim, 
-                 num_action, 
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh,
-                 net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":3e-4}
+                 observation_dim: int, 
+                 num_action: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 net_arch: Optional[List[int]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
                 ):
         
         super(VPGActor, self).__init__()
@@ -252,7 +254,7 @@ class VPGActor(nn.Module):
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)
@@ -265,11 +267,11 @@ class VPGActor(nn.Module):
 
 class ACKTRCritic(nn.Module):
     def __init__(self, 
-                 observation_dim, 
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh, 
-                 net_arch=None,
-                 optimizer_kwargs={"lr":0.25},
+                 observation_dim: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh, 
+                 net_arch: Optional[List[int]] = None,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 0.25},
                 ):
         
         super(ACKTRCritic, self).__init__()
@@ -298,7 +300,7 @@ class ACKTRCritic(nn.Module):
         
         self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)
@@ -308,13 +310,13 @@ class ACKTRCritic(nn.Module):
     
 class QCritic(nn.Module):
     def __init__(self, 
-                 observation_dim,
-                 num_action, 
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh, 
-                 net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":3e-4}
+                 observation_dim: int,
+                 num_action: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh, 
+                 net_arch: Optional[List[Any]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
                 ):
         
         super(QCritic, self).__init__()
@@ -341,7 +343,7 @@ class QCritic(nn.Module):
         
         self.optimizer = optim.Adam(self.parameters(), **optimizer_kwargs)
 
-    def forward(self, x_s, x_a):
+    def forward(self, x_s: torch.Tensor, x_a: torch.Tensor) -> torch.Tensor:
         if self.net_arch is not None:
             x = torch.cat([x_s, x_a], dim=1)
             for i, layer in enumerate(self.model):
@@ -356,12 +358,12 @@ class QCritic(nn.Module):
     
 class VCritic(nn.Module):
     def __init__(self, 
-                 observation_dim, 
-                 hidden_size=64, 
-                 activation_fn=nn.Tanh, 
-                 net_arch=None,
-                 optimizer=optim.Adam,
-                 optimizer_kwargs={"lr":1e-3},
+                 observation_dim: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh, 
+                 net_arch: Optional[List[int]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3},
                 ):
         
         super(VCritic, self).__init__()
@@ -390,7 +392,7 @@ class VCritic(nn.Module):
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.net_arch is not None:
             for i, layer in enumerate(self.model):
                 x = layer(x)

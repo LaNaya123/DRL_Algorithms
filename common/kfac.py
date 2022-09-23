@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+from typing import Tuple
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-def _extract_patches(x, kernel_size, stride, padding):
+def _extract_patches(x: torch.Tensor, kernel_size: Tuple[int, int], stride: Tuple[int, int], padding: Tuple[int, int]) -> torch.Tensor:
     if padding[0] + padding[1] > 0:
         x = F.pad(x, (padding[1], padding[1], padding[0],
                       padding[0])).data
@@ -17,7 +18,7 @@ def _extract_patches(x, kernel_size, stride, padding):
         x.size(3) * x.size(4) * x.size(5))
     return x
 
-def compute_cov_a(a, classname, layer_info, fast_cnn):
+def compute_cov_a(a: torch.Tensor, classname: str, layer_info: tuple, fast_cnn: bool) -> torch.Tensor:
     batch_size = a.size(0)
 
     if classname == 'Conv2d':
@@ -36,7 +37,7 @@ def compute_cov_a(a, classname, layer_info, fast_cnn):
     return a.t() @ (a / batch_size)
 
 
-def compute_cov_g(g, classname, layer_info, fast_cnn):
+def compute_cov_g(g: torch.Tensor, classname: str, layer_info: tuple, fast_cnn: bool) -> torch.Tensor:
     batch_size = g.size(0)
 
     if classname == 'Conv2d':
@@ -53,18 +54,17 @@ def compute_cov_g(g, classname, layer_info, fast_cnn):
     g_ = g * batch_size
     return g_.t() @ (g_ / g.size(0))
 
-
-def update_running_stat(aa, m_aa, momentum):
+def update_running_stat(aa: torch.Tensor, m_aa: torch.Tensor, momentum: float) -> None:
     m_aa *= momentum / (1 - momentum)
     m_aa += aa
     m_aa *= (1 - momentum)
-
+  
 class AddBias(nn.Module):
-    def __init__(self, bias):
+    def __init__(self, bias: torch.Tensor):
         super(AddBias, self).__init__()
         self._bias = nn.Parameter(bias.unsqueeze(1))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() == 1 or x.dim() == 2:
             bias = self._bias.t().view(1, -1)
         else:
@@ -72,33 +72,33 @@ class AddBias(nn.Module):
         return x + bias
 
 class SplitBias(nn.Module):
-    def __init__(self, module):
+    def __init__(self, module: nn.Module):
         super(SplitBias, self).__init__()
         self.module = module
         self.add_bias = AddBias(module.bias.data)
         self.module.bias = None
 
-    def forward(self, input):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.module(input)
         x = self.add_bias(x)
         return x
 
 class KFACOptimizer(optim.Optimizer):
     def __init__(self,
-                 model,
-                 lr=0.25,
-                 momentum=0.9,
-                 stat_decay=0.99,
-                 kl_clip=0.001,
-                 damping=1e-2,
-                 weight_decay=0,
-                 fast_cnn=False,
-                 Ts=1,
-                 Tf=10):
+                 model: nn.Module,
+                 lr: int = 0.25,
+                 momentum: float = 0.9,
+                 stat_decay: float = 0.99,
+                 kl_clip: float = 0.001,
+                 damping: float = 1e-2,
+                 weight_decay: float = 0,
+                 fast_cnn: bool = False,
+                 Ts: int = 1,
+                 Tf: int = 10):
         
         defaults = dict()
         
-        def split_bias(module):
+        def split_bias(module: nn.Module) -> None:
             for mname, child in module.named_children():
                 if hasattr(child, 'bias') and child.bias is not None:
                     module._modules[mname] = SplitBias(child)
@@ -141,7 +141,7 @@ class KFACOptimizer(optim.Optimizer):
             lr=self.lr * (1 - self.momentum),
             momentum=self.momentum)
 
-    def _save_input(self, module, input):
+    def _save_input(self, module: nn.Module, input: Tuple[torch.Tensor,...]) -> None:
         if torch.is_grad_enabled() and self.steps % self.Ts == 0:
             classname = module.__class__.__name__
             
@@ -159,7 +159,7 @@ class KFACOptimizer(optim.Optimizer):
 
             update_running_stat(aa, self.m_aa[module], self.stat_decay)
 
-    def _save_grad_output(self, module, grad_input, grad_output):
+    def _save_grad_output(self, module: nn.Module, grad_input: Tuple[torch.Tensor,...], grad_output: Tuple[torch.Tensor,...]) -> None:
         if self.acc_stats:
             classname = module.__class__.__name__
             layer_info = None
@@ -175,7 +175,7 @@ class KFACOptimizer(optim.Optimizer):
 
             update_running_stat(gg, self.m_gg[module], self.stat_decay)
 
-    def _prepare_model(self):
+    def _prepare_model(self) -> None:
         for module in self.model.modules():
             classname = module.__class__.__name__
             if classname in self.known_modules:
@@ -186,7 +186,7 @@ class KFACOptimizer(optim.Optimizer):
                 module.register_forward_pre_hook(self._save_input)
                 module.register_full_backward_hook(self._save_grad_output)
 
-    def step(self):
+    def step(self) -> None:
         if self.weight_decay > 0:
             for p in self.model.parameters():
                 p.grad.data.add_(self.weight_decay, p.data)

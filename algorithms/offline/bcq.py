@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -10,30 +11,30 @@ import random
 from algorithms.online.ddpg import DDPG
 from common.envs import Monitor, VecEnv
 from common.models import BCQActor, QCritic
-from common.utils import VAE
-from common.utils import OrnsteinUhlenbeckNoise, Mish, clip_grad_norm_
+from common.buffers import ReplayBuffer
+from common.utils import OrnsteinUhlenbeckNoise, Mish, clip_grad_norm_, VAE
 
 class BCQ():
     def __init__(
                  self,
-                 env,
-                 buffer=None, 
-                 num_iterations=1000,
-                 num_samples=10,
-                 batch_size=64,
-                 target_update_interval=1,
-                 eval_interval=10,
-                 eval_episodes=5,
-                 gamma=0.99,
-                 tau=0.95,
-                 lmbda=0.75,
-                 verbose=1,
-                 log_dir=None,
-                 log_interval=10,
-                 device="auto",
-                 seed=None,
-                 actor_kwargs=None,
-                 critic_kwargs=None,
+                 env: Monitor,
+                 buffer: Optional[ReplayBuffer] = None, 
+                 num_iterations: int = 1000,
+                 num_samples: int = 10,
+                 batch_size: int = 64,
+                 target_update_interval: int = 1,
+                 eval_interval: int = 10,
+                 eval_episodes: int = 5,
+                 gamma: int = 0.99,
+                 tau: float = 0.95,
+                 lmbda: float = 0.75,
+                 verbose: int = 1,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 10,
+                 device: str = "auto",
+                 seed: Optional[int] = None,
+                 actor_kwargs: Optional[Dict[str, Any]] = None,
+                 critic_kwargs: Optional[Dict[str, Any]] = None,
                 ):
         
         self.env = env
@@ -94,16 +95,16 @@ class BCQ():
             print(self.actor)
             print(self.critic1)
     
-    def _generate_buffer(self, **kwargs):
+    def _generate_buffer(self, **kwargs) -> None:
             ddpg = DDPG(self.env, **kwargs)
             ddpg.learn()
             self.buffer = ddpg.buffer
         
-    def _polyak_update(self, online, target):
+    def _polyak_update(self, online, target) -> None:
         for target_param, param in zip(target.parameters(), online.parameters()):
             target_param.data.copy_(param.data * (1.0 - self.tau) + target_param.data * self.tau)
     
-    def _act(self, obs):
+    def _act(self, obs) -> np.ndarray:
         with torch.no_grad():
             obs = torch.FloatTensor(obs.reshape(1, -1)).repeat(100, 1).to(self.device)
             acts = self.actor(obs, self.vae.decode(obs, self.device))
@@ -112,7 +113,7 @@ class BCQ():
             
         return acts[ind].cpu().numpy().flatten()
             
-    def _train(self):
+    def _train(self) -> None:
         for iteration in range(self.num_iterations):
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
@@ -173,14 +174,14 @@ class BCQ():
             if iteration != 0 and iteration % self.eval_interval == 0:
                 self.inference()
                 
-    def learn(self, **kwargs):
+    def learn(self, **kwargs) -> None:
         if self.buffer is not None:
             self._train()
         else:
             self._generate_buffer(**kwargs)
             self._train()
     
-    def inference(self):
+    def inference(self) -> None:
         avg_returns = 0.
         
         for _ in range(self.eval_episodes):

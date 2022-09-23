@@ -3,7 +3,7 @@ import csv
 import os
 
 class Logger():
-    def __init__(self, log_dir):
+    def __init__(self, log_dir: str):
         try:
             os.makedirs(log_dir)
         except:
@@ -17,10 +17,10 @@ class Logger():
         
         self.log_count = 0
 
-    def write(self, data):
+    def write(self, data: list) -> None:
         assert isinstance(data, list), "The data must be a list:)"
         
         self.writer.writerow(data)
         
-    def close(self):
+    def close(self) -> None:
         self.f.close()

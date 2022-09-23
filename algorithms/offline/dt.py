@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -9,17 +10,17 @@ from common.utils import DecisionTransformer, TrajectoryDataset
 class DT():
     def __init__(
                  self,
-                 dataset_dir,
-                 seq_len,
-                 batch_size=64,
-                 num_epochs= 10,
-                 num_blocks=4, 
-                 num_heads=4,
-                 hidden_size=256,
-                 dropout_prob=0.2,
-                 max_timestep=4096,
-                 optimizer=optim.AdamW,
-                 optimizer_kwargs={"lr":1e-3}
+                 dataset_dir: str,
+                 seq_len: int,
+                 batch_size: int = 64,
+                 num_epochs: int = 10,
+                 num_blocks: int = 4, 
+                 num_heads: int = 4,
+                 hidden_size: int = 256,
+                 dropout_prob: float = 0.2,
+                 max_timestep: int = 4096,
+                 optimizer: optim.Optimizer = optim.AdamW,
+                 optimizer_kwargs: Dict[str, Any] = {"lr":1e-3}
                 ):
         self.num_epochs = num_epochs
         
@@ -42,7 +43,7 @@ class DT():
         
         self.optimizer = optimizer(self.model.parameters(), **optimizer_kwargs)
         
-    def learn(self):
+    def learn(self) -> None:
         for epoch in range(self.num_epochs):
             
             for trajs in self.traj_dataloader:

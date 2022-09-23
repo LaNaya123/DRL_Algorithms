@@ -1,25 +1,26 @@
 # -*- coding: utf-8 -*-
+from typing import Union, Tuple
 import torch 
+import torch.multiprocessing as mp
 import numpy as np
 import random
-import torch.multiprocessing as mp
 from collections import deque
 from common.utils import swap_and_flatten
 
 class RolloutBuffer():
-    def __init__(self, buffer_size, device):
+    def __init__(self, buffer_size: int, device: torch.device):
         self.buffer_size = buffer_size
         self.device = device
         
         self.buffer = []
         
-    def reset(self):
+    def reset(self) -> None:
         self.buffer.clear()
         
-    def add(self, transition):
+    def add(self, transition: Tuple[np.ndarray, np.ndarray, Union[float, np.ndarray], np.ndarray, Union[bool, np.ndarray]]) -> None:
         self.buffer.append(transition)
         
-    def get(self):
+    def get(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         obs, actions, rewards, next_obs, dones = [], [], [], [], []
         
         for ob, action, reward, next_ob, done in self.buffer:
@@ -47,21 +48,22 @@ class RolloutBuffer():
         next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs))).to(self.device)
         dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones))).to(self.device)
         
-        return obs, actions, rewards, next_obs, dones
+        return (obs, actions, rewards, next_obs, dones)
     
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.buffer)
     
 class ReplayBuffer():
-    def __init__(self, buffer_size, device):
+    def __init__(self, buffer_size: int, device: torch.device):
         self.buffer_size = buffer_size
-        self.buffer = deque(maxlen=buffer_size)
         self.device = device
         
-    def add(self, transition):
+        self.buffer = deque(maxlen=buffer_size)
+
+    def add(self, transition: Tuple[np.ndarray, np.ndarray, Union[float, np.ndarray], np.ndarray, Union[bool, np.ndarray]]) -> None:
         self.buffer.append(transition)
         
-    def sample(self, batch_size):
+    def sample(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         try:
             samples = random.sample(self.buffer, batch_size)
         except:
@@ -100,13 +102,13 @@ class ReplayBuffer():
         next_obs = torch.FloatTensor(swap_and_flatten(np.asarray(next_obs))).to(self.device)
         dones = torch.FloatTensor(swap_and_flatten(np.asarray(dones))).to(self.device)
         
-        return obs, actions, rewards, next_obs, dones
+        return (obs, actions, rewards, next_obs, dones)
     
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.buffer)
     
 class SharedReplayBuffer():
-    def __init__(self, buffer_size, num_envs, observation_dim):
+    def __init__(self, buffer_size: int, num_envs: int, observation_dim: int):
         self.buffer_size = buffer_size
         self.num_envs = num_envs
         
@@ -119,7 +121,7 @@ class SharedReplayBuffer():
         self.pos = mp.Value("i", 0)
         self.full = False
         
-    def add(self, transition):
+    def add(self, transition: Tuple[np.ndarray, np.ndarray, float, np.ndarray, bool]) -> None:
         pos = self.pos.value
         
         obs = transition[0]
@@ -145,7 +147,7 @@ class SharedReplayBuffer():
             self.pos.value = 0
             self.full = True
             
-    def sample(self, batch_size):
+    def sample(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if self.full:
             batch_inds = np.random.randint(0, self.buffer_size, size=batch_size)
         else:
@@ -162,9 +164,9 @@ class SharedReplayBuffer():
         rewards = rewards.unsqueeze(dim=1)
         dones = dones.unsqueeze(dim=1)
 
-        return observations, actions, rewards, next_observations, dones
+        return (observations, actions, rewards, next_observations, dones)
     
-    def __len__(self):
+    def __len__(self) -> int:
         if self.full:
             return self.buffer_size
         else:

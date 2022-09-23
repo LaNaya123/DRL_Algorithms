@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import Union, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,23 +12,30 @@ import gym
 from torch.utils.data import Dataset
 from collections import defaultdict
 
-def safe_mean(arr):
+def safe_mean(arr: np.ndarray) -> float:
     return np.nan if len(arr) == 0 else round(np.mean(arr), 2)
 
-def swap_and_flatten(arr):
+def swap_and_flatten(arr: np.ndarray) -> np.ndarray:
     shape = arr.shape
     if len(shape) < 3:
         shape = shape + (1,)
     return arr.swapaxes(0, 1).reshape(shape[0] * shape[1], *shape[2:])
     
-def obs_to_tensor(x):
+def obs_to_tensor(x: np.ndarray) -> torch.Tensor:
     x = np.array(x) if not isinstance(x, np.ndarray) else x
     return torch.from_numpy(x).float()
 
-def clip_grad_norm_(module, max_grad_norm):
+def clip_grad_norm_(module: nn.Module, max_grad_norm: float) -> None:
     nn.utils.clip_grad_norm_([p for g in module.param_groups for p in g["params"]], max_grad_norm)
 
-def compute_gae_advantage(rewards, values, dones, last_value, gamma=0.95, gae_lambda=0.95):
+def compute_gae_advantage(rewards: torch.Tensor, 
+                          values: torch.Tensor, 
+                          dones: torch.Tensor, 
+                          last_value: Union[int, torch.Tensor], 
+                          gamma: float = 0.95, 
+                          gae_lambda: float = 0.95
+                         ) -> torch.Tensor:
+    
     advantages = []
     gae_advantage = 0
 
@@ -41,7 +49,12 @@ def compute_gae_advantage(rewards, values, dones, last_value, gamma=0.95, gae_la
         advantages.append(gae_advantage)
     return torch.FloatTensor(advantages[::-1]).view(-1, 1)
 
-def compute_td_target(rewards, dones, last_value, gamma=0.95):
+def compute_td_target(rewards: torch.Tensor, 
+                      dones: torch.Tensor, 
+                      last_value: Union[int, torch.Tensor], 
+                      gamma: float = 0.95
+                     ) -> torch.Tensor:
+    
     target_values = []
     td_target = last_value
     for i in reversed(range(len(rewards))):
@@ -49,7 +62,7 @@ def compute_td_target(rewards, dones, last_value, gamma=0.95):
         target_values.append(td_target)
     return torch.FloatTensor(target_values[::-1]).view(-1, 1)
 
-def compute_rtg(rewards, gamma=0.99):
+def compute_rtg(rewards: np.ndarray, gamma: float = 0.99) -> np.ndarray:
     rtg = np.zeros_like(rewards)
     rtg[-1] = rewards[-1]
     
@@ -57,7 +70,7 @@ def compute_rtg(rewards, gamma=0.99):
         rtg[i] = rewards[i] + gamma * rtg[i+1]
     return rtg
         
-def get_dataset(dataset_dir):
+def get_dataset(dataset_dir: str) -> None:
     os.makedirs(dataset_dir)
     
     for env_name in ["halfcheetah", "hopper", "walker2d"]:
@@ -106,31 +119,31 @@ class Mish(nn.Module):
     def __init__(self): 
         super().__init__()
         
-    def forward(self, x): 
+    def forward(self, x: torch.Tensor) -> torch.Tensor: 
         return self._mish(x)
     
-    def _mish(self, x):
+    def _mish(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.tanh(F.softplus(x))
     
 class OrnsteinUhlenbeckNoise():
-    def __init__(self, mu, sigma=0.1, theta=0.1, dt=0.01):
+    def __init__(self, mu: np.ndarray, sigma: float = 0.1, theta: float = 0.1, dt: float = 0.01):
         self.mu = mu
         self.sigma = sigma
         self.theta = theta
         self.dt = dt
         self.x_prev = np.zeros_like(self.mu)
         
-    def reset(self):
+    def reset(self) -> None:
         self.x_prev = np.zeros_like(self.mu)
 
-    def __call__(self):
+    def __call__(self) -> np.ndarray:
         x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + \
             self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
         self.x_prev = x
         return x
 
 class TrajectoryDataset(Dataset):
-    def __init__(self, dataset_dir, seq_len):
+    def __init__(self, dataset_dir: str, seq_len: int):
         self.seq_len = seq_len
         
         with open(dataset_dir, "rb") as f:
@@ -139,7 +152,7 @@ class TrajectoryDataset(Dataset):
         for traj in self.trajectories:
             traj["returns_to_go"] = compute_rtg(traj["rewards"])
             
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         traj = self.trajectories[index]
         traj_len = traj['observations'].shape[0]
         
@@ -180,22 +193,22 @@ class TrajectoryDataset(Dataset):
                                    torch.zeros(padding_len, dtype=torch.long)],
                                   dim=0)
 
-        return timesteps, observations, actions, returns_to_go, traj_masks
+        return (timesteps, observations, actions, returns_to_go, traj_masks)
         
     @property
-    def observation_dim(self):
+    def observation_dim(self) -> int:
         return self.trajectories[0]["observations"].shape[1]
     
     @property
-    def num_actions(self):
+    def num_actions(self) -> int:
         return self.trajectories[0]["actions"].shape[1]
     
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.trajectories)
     
     
 class MaskedAttention(nn.Module):
-    def __init__(self, hidden_size, seq_len, num_heads, dropout_prob=0.2):
+    def __init__(self, hidden_size: int, seq_len: int, num_heads: int, dropout_prob: float = 0.2):
         super(MaskedAttention, self).__init__()
         
         self.hidden_size = hidden_size
@@ -216,7 +229,7 @@ class MaskedAttention(nn.Module):
         attn_mask = torch.tril(ones).view(1, 1, seq_len, seq_len)
         self.register_buffer('attn_mask',attn_mask)
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape 
         N, D = self.num_heads, C // self.num_heads 
 
@@ -235,7 +248,7 @@ class MaskedAttention(nn.Module):
         return x
     
 class DecoderBlock(nn.Module):
-    def __init__(self, hidden_size, seq_len, num_heads, dropout_prob):
+    def __init__(self, hidden_size: int, seq_len: int, num_heads: int, dropout_prob: float = 0.2):
         super(DecoderBlock, self).__init__()
         
         self.attn = MaskedAttention(hidden_size, seq_len, num_heads, dropout_prob)
@@ -250,7 +263,7 @@ class DecoderBlock(nn.Module):
         self.ln1 = nn.LayerNorm(hidden_size)
         self.ln2 = nn.LayerNorm(hidden_size)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(x) 
         x = self.ln1(x)
         x = x + self.mlp(x) 
@@ -258,8 +271,8 @@ class DecoderBlock(nn.Module):
         return x
     
 class DecisionTransformer(nn.Module):
-    def __init__(self, observation_dim, num_actions, num_blocks, hidden_size, seq_len,
-                 num_heads, dropout_prob, max_timestep=4096):
+    def __init__(self, observation_dim: int, num_actions: int, num_blocks: int, hidden_size: int, 
+                 seq_len: int, num_heads: int, dropout_prob: float = 0.2, max_timestep: int = 4096):
         super(DecisionTransformer, self).__init__()
 
         self.observation_dim = observation_dim
@@ -283,7 +296,8 @@ class DecisionTransformer(nn.Module):
         self.predict_obs = nn.Linear(hidden_size, observation_dim)
         self.predict_act = nn.Linear(hidden_size, num_actions)
 
-    def forward(self, timesteps, observations, actions, returns_to_go):
+    def forward(self, timesteps: torch.Tensor, observations: torch.Tensor, 
+                actions: torch.Tensor, returns_to_go: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         B, T, _ = observations.shape
 
@@ -305,10 +319,10 @@ class DecisionTransformer(nn.Module):
         rtg_preds = self.predict_rtg(hidden_states[:,2])    
         obs_preds = self.predict_obs(hidden_states[:,2])    
         act_preds = self.predict_act(hidden_states[:,1])  
-        return rtg_preds, obs_preds, act_preds
+        return (rtg_preds, obs_preds, act_preds)
 
 class VAE(nn.Module):
-    def __init__(self, observation_dim, num_actions, latent_dim, max_action):
+    def __init__(self, observation_dim: int, num_actions: int, latent_dim: int, max_action: int):
         super(VAE, self).__init__()
         
         self.latent_dim = latent_dim
@@ -325,7 +339,7 @@ class VAE(nn.Module):
         self.d2 = nn.Linear(750, 750)
         self.d3 = nn.Linear(750, num_actions)
     
-    def forward(self, observation, action):
+    def forward(self, observation: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         z = F.relu(self.e1(torch.cat([observation, action], 1)))
         z = F.relu(self.e2(z))
         
@@ -338,9 +352,9 @@ class VAE(nn.Module):
         
         a = self.decode(observation, z)
         
-        return a, mean, std
+        return (a, mean, std)
     
-    def decode(self, observation, device, z=None):
+    def decode(self, observation: torch.Tensor, device: torch.device, z: Optional[torch.Tensor] = None) -> torch.Tensor:
         if z is None:
             z = torch.randn((observation.shape[0], self.latent_dim)).clamp(-0.5,0.5).to(device)
             

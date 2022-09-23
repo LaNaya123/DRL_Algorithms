@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
+from typing import Any, Dict, Optional, Union
 import gym
 import random
 import numpy as np
@@ -14,24 +15,24 @@ from common.utils import Mish, obs_to_tensor
     
 class DQN(OffPolicyAlgorithm):
     def __init__(self, 
-                 env, 
-                 rollout_steps=16,
-                 total_timesteps=1e6, 
-                 gradient_steps=4,
-                 learning_start=1000,
-                 buffer_size=10000,
-                 batch_size=256,
-                 target_update_interval=20,
-                 gamma=0.99,
-                 verbose=1,
-                 log_dir=None,
-                 log_interval=10,
-                 device="auto",
-                 seed=None,
-                 qnet_kwargs=None,
-                 exploration_initial_eps=0.2,
-                 exploration_final_eps=0.05,
-                 exploration_decay_steps=10000,
+                 env: Union[Monitor, VecEnv], 
+                 rollout_steps: int = 16,
+                 total_timesteps: int = 1e6, 
+                 gradient_steps: int = 4,
+                 learning_start: int = 1000,
+                 buffer_size: int = 10000,
+                 batch_size: int = 256,
+                 target_update_interval: int = 20,
+                 gamma: float = 0.99,
+                 verbose: int = 1,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 10,
+                 device: str = "auto",
+                 seed: Optional[int] = None,
+                 qnet_kwargs: Optional[Dict[str, Any]] = None,
+                 exploration_initial_eps: float = 0.2,
+                 exploration_final_eps: float = 0.05,
+                 exploration_decay_steps: int = 10000,
                 ):
         
         self.qnet_kwargs = qnet_kwargs
@@ -58,7 +59,7 @@ class DQN(OffPolicyAlgorithm):
                  seed,
                 )
         
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         observation_dim = self.env.observation_space.shape[0]
         
         num_action = self.env.action_space.n
@@ -74,13 +75,13 @@ class DQN(OffPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def _update_exploration_eps(self):
+    def _update_exploration_eps(self) -> None:
         if self.current_eps == self.exploration_final_eps:
             return 
         self.current_eps = self.exploration_initial_eps - ((self.exploration_initial_eps - self.exploration_final_eps) / self.exploration_decay_steps) * self.current_timesteps
         self.current_eps = max(self.current_eps, self.exploration_final_eps)
         
-    def rollout(self):
+    def rollout(self) -> None:
         for i in range(self.rollout_steps):
             q = self.qnet(obs_to_tensor(self.obs).to(self.device))
             
@@ -104,7 +105,7 @@ class DQN(OffPolicyAlgorithm):
             self._update_exploration_eps()
             
     
-    def train(self):
+    def train(self) -> None:
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
             actions = actions.type("torch.LongTensor").to(self.device)
