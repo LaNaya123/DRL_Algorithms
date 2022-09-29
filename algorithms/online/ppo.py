@@ -14,7 +14,7 @@ from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
 from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
 
-class VPG(OnPolicyAlgorithm):
+class PPO(OnPolicyAlgorithm):
     def __init__(self, 
                  env: Union[Monitor, VecEnv], 
                  rollout_steps: int = 16, 
@@ -22,9 +22,12 @@ class VPG(OnPolicyAlgorithm):
                  actor_kwargs: Optional[Dict[str, Any]] = None,
                  critic_kwargs: Optional[Dict[str, Any]] = None,
                  td_method: str = "td_lambda",
+                 num_epochs: int = 10,
+                 clip_range: float = 0.2,
+                 ent_coef: float = 0.0,
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
-                 max_grad_norm: Optional[float] = 0.5,
+                 max_grad_norm: Optional[float] = None,
                  verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 100,
@@ -32,7 +35,7 @@ class VPG(OnPolicyAlgorithm):
                  seed: Optional[int] = None,
                  ):
         
-        super(VPG, self).__init__(
+        super(PPO, self).__init__(
               env, 
               rollout_steps, 
               total_timesteps, 
@@ -48,7 +51,11 @@ class VPG(OnPolicyAlgorithm):
               device,
               seed,
             )
-    
+        
+        self.num_epochs = num_epochs
+        self.clip_range = clip_range
+        self.ent_coef = ent_coef
+        
     def _setup_model(self) -> None:
         observation_dim = self.env.observation_space.shape[0]
         
@@ -89,8 +96,10 @@ class VPG(OnPolicyAlgorithm):
                 self.current_timesteps += self.env.num_envs
             
                 self._update_episode_info(info)
-            
+                
     def train(self) -> None:
+        for epoch in range(self.num_epochs):
+            
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
@@ -132,10 +141,16 @@ class VPG(OnPolicyAlgorithm):
             
             dists = self.actor(obs)
             
+            entropy = -dists.entropy().mean()
+            
             log_probs = dists.log_prob(actions)
+            old_log_probs = log_probs.detach()
+            
+            ratio = torch.exp(log_probs - old_log_probs)
              
-            actor_loss = -(log_probs * advantages.detach()).mean()
-            #print(actor_loss.item())
+            actor_loss1 = ratio * advantages
+            actor_loss2 = torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
+            actor_loss = -torch.min(actor_loss1, actor_loss2).mean() + self.ent_coef * entropy
             
             self.actor.optimizer.zero_grad()
             actor_loss.backward()
@@ -159,14 +174,14 @@ class VPG(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    vpg = VPG(env, 
+    PPO = PPO(env, 
               rollout_steps=8, 
               total_timesteps=2e5, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
-              max_grad_norm=0.5,
+              num_epochs=1,
               log_dir=None,
-              seed=14,
+              seed=7,
              )
-    vpg.learn()
+    PPO.learn()
