@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Tuple
 import gym
+import gym.spaces as spaces
 import random
 import numpy as np
 import torch
@@ -60,12 +61,15 @@ class DQN(OffPolicyAlgorithm):
                 )
         
     def _setup_model(self) -> None:
-        observation_dim = self.env.observation_space.shape[0]
+        if isinstance(self.env.observation_space, spaces.Box):
+            self.observation_dim = self.env.observation_space.shape[0]
+        elif isinstance(self.env.observation_space, spaces.Discrete):
+            self.observation_dim = 1
         
-        num_action = self.env.action_space.n
+        self.num_actions = self.env.action_space.n
         
-        self.qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs).to(self.device)
-        self.target_qnet = DeepQNetwork(observation_dim, num_action, **self.qnet_kwargs).to(self.device)
+        self.qnet = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs).to(self.device)
+        self.target_qnet = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs).to(self.device)
         self.target_qnet.load_state_dict(self.qnet.state_dict())
             
         if self.verbose > 0:
@@ -83,7 +87,7 @@ class DQN(OffPolicyAlgorithm):
         
     def rollout(self) -> None:
         for i in range(self.rollout_steps):
-            q = self.qnet(obs_to_tensor(self.obs).to(self.device))
+            q = self.qnet(obs_to_tensor([self.obs]).to(self.device))
             
             coin = random.random()
             if coin < self.current_eps:
@@ -105,15 +109,15 @@ class DQN(OffPolicyAlgorithm):
             self._update_exploration_eps()
             
     
-    def train(self) -> None:
+    def train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
             obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
             actions = actions.type("torch.LongTensor").to(self.device)
             
-            assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
+            assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.observation_dim
             assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
             assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
-            assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
+            assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
             assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
             q_next = self.target_qnet(next_obs)
@@ -133,14 +137,16 @@ class DQN(OffPolicyAlgorithm):
 
             if self.training_iterations % self.target_update_interval == 0:
                 self.target_qnet.load_state_dict(self.qnet.state_dict())
+                
+            return (obs, actions, rewards, next_obs, dones)
 
 if __name__ == "__main__":
-    env = gym.make("CartPole-v0")
+    env = gym.make("FrozenLake-v1")
     env = Monitor(env)
     #env = VecEnv(env, num_envs=4)
     dqn = DQN(env, 
               rollout_steps=8,
-              total_timesteps=5e4,
+              total_timesteps=1e6,
               gradient_steps=2,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=500,
@@ -148,5 +154,5 @@ if __name__ == "__main__":
               batch_size=64,
               log_dir=None,
               log_interval=20,
-              seed=2,)
+              seed=1,)
     dqn.learn()

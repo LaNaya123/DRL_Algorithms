@@ -2,6 +2,7 @@
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Dict, Optional, Union
+import time
 import gym
 import numpy as np
 import torch
@@ -91,70 +92,72 @@ class VPG(OnPolicyAlgorithm):
                 self._update_episode_info(info)
             
     def train(self) -> None:
-            obs, actions, rewards, next_obs, dones = self.buffer.get()
+        time1 = time.time()
+        obs, actions, rewards, next_obs, dones = self.buffer.get()
             
-            assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
-            assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
-            assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
-            assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
-            assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
+        assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
+        assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
+        assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
+        assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
+        assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-            values = self.critic(obs)
+        values = self.critic(obs)
             
-            if  self.td_method == "td":
-                target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
+        if  self.td_method == "td":
+            target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
                 
-                advantages = target_values - values
+            advantages = target_values - values
             
-            elif self.td_method == "td_n":
-                if dones[-1]:
-                    last_value = 0
-                else:
-                    last_value = self.critic(next_obs[-1])
+        elif self.td_method == "td_n":
+            if dones[-1]:
+                last_value = 0
+            else:
+                last_value = self.critic(next_obs[-1])
             
-                target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
-                target_values = target_values.to(self.device)
+            target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
+            target_values = target_values.to(self.device)
                 
-                advantages = target_values - values
+            advantages = target_values - values
                 
-            elif self.td_method == "td_lambda":
-                if dones[-1]:
-                    last_value = 0
-                else:
-                    last_value = self.critic(next_obs[-1])
+        elif self.td_method == "td_lambda":
+            if dones[-1]:
+                last_value = 0
+            else:
+                last_value = self.critic(next_obs[-1])
             
-                advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
-                advantages = advantages.to(self.device)
+            advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
+            advantages = advantages.to(self.device)
                 
-                target_values = advantages + values
+            target_values = advantages + values
                 
-                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             
-            dists = self.actor(obs)
+        dists = self.actor(obs)
             
-            log_probs = dists.log_prob(actions)
+        log_probs = dists.log_prob(actions)
              
-            actor_loss = -(log_probs * advantages.detach()).mean()
-            #print(actor_loss.item())
+        actor_loss = -(log_probs * advantages.detach()).mean()
             
-            self.actor.optimizer.zero_grad()
-            actor_loss.backward()
+        self.actor.optimizer.zero_grad()
+        actor_loss.backward()
             
-            if self.max_grad_norm:
-                clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
+        if self.max_grad_norm:
+            clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
             
-            self.actor.optimizer.step()
+        self.actor.optimizer.step()
         
-            critic_loss = F.mse_loss(target_values.detach(), values)
+        critic_loss = F.mse_loss(target_values.detach(), values)
             
-            self.critic.optimizer.zero_grad()
+        self.critic.optimizer.zero_grad()
             
-            critic_loss.backward()
+        critic_loss.backward()
             
-            if self.max_grad_norm:
-                clip_grad_norm_(self.critic.optimizer, self.max_grad_norm)
+        if self.max_grad_norm:
+            clip_grad_norm_(self.critic.optimizer, self.max_grad_norm)
             
-            self.critic.optimizer.step()
+        self.critic.optimizer.step()
+        time2 = time.time()
+        print("time_elapsed", time2 - time1)
             
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")

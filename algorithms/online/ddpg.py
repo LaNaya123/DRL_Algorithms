@@ -137,7 +137,7 @@ if __name__ == "__main__":
     #env = VecEnv(env, num_envs=4)
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
     ddpg = DDPG(env, 
-              total_timesteps=2e4, 
+              total_timesteps=1.5e4, 
               gradient_steps=4,
               rollout_steps=8, 
               learning_start=500,
@@ -146,8 +146,42 @@ if __name__ == "__main__":
               target_update_interval=1,
               log_dir=None,
               log_interval=80,
-              seed=5,
-              actor_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":5e-4}}, 
+              seed=12,
+              actor_kwargs={"hidden_size":32, "activation_fn": Mish, "optimizer_kwargs":{"lr":5e-4}}, 
               critic_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}},
               ou_noise=ou_noise)
     ddpg.learn()
+    import seaborn as sns
+    params = ddpg.actor.parameters()
+    for i, p in enumerate(params):
+        if i == 2:
+            p = p.detach() + torch.randn(32, 32) * 0.3
+            p = p.detach()
+            cov = torch.cov(p) 
+            sns.heatmap(cov, cmap="magma")
+            break
+    print(cov)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

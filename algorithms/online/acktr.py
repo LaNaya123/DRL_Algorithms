@@ -2,6 +2,7 @@
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Dict, Optional, Union
+import time
 import gym
 import numpy as np
 import torch
@@ -96,6 +97,7 @@ class ACKTR(OnPolicyAlgorithm):
                 self._update_episode_info(info)
         
     def train(self) -> None:
+            time1 = time.time()
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
@@ -184,7 +186,8 @@ class ACKTR(OnPolicyAlgorithm):
                 clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
 
             self.critic.optimizer.step()
-            
+            time2 = time.time()
+            print(time2 - time1, "12312")
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)

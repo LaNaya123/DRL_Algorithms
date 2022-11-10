@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Type, Any, List, Tuple, Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 import numpy as np
 import random
 import math 
@@ -69,7 +70,34 @@ def compute_rtg(rewards: np.ndarray, gamma: float = 0.99) -> np.ndarray:
     for i in reversed(range(len(rewards)-1)):
         rtg[i] = rewards[i] + gamma * rtg[i+1]
     return rtg
-        
+
+def compute_ngu_intrinsic_reward(episodic_memory: List[torch.Tensor],
+                                 controllable_state: torch.Tensor,
+                                 k: int = 10,
+                                 kernel_cluster_distance: float = 0.008,
+                                 kernel_epsilon: float = 0.0001,
+                                 c: float = 0.001,
+                                 sm: int = 8
+                                ) -> float:
+    
+    state_dist = [(state, torch.dist(state, controllable_state)) for state in episodic_memory]
+    state_dist.sort(key=lambda x: x[1])
+    state_dist = state_dist[:k]
+    
+    dist = [d[1].item() for d in state_dist]
+    dist = np.array(dist)
+    dist = dist / (np.mean(dist) + 1e-7)
+    dist = np.max(dist - kernel_cluster_distance, 0)
+    
+    kernel = kernel_epsilon / (dist + kernel_epsilon)
+    
+    s = np.sqrt(np.sum(kernel)) + c
+
+    if np.isnan(s) or s > sm:
+        return 0
+    
+    return 1 / s
+    
 def get_dataset(dataset_dir: str) -> None:
     os.makedirs(dataset_dir)
     
@@ -362,3 +390,41 @@ class VAE(nn.Module):
         a = F.relu(self.d2(a))
         a = F.tanh(self.d3(a)) * self.max_action
         return a
+    
+class SiameseNet(nn.Module):
+    def __init__(self, 
+                 observation_dim: int, 
+                 num_actions: int,
+                 activation_fn: Type[nn.Module] = nn.ReLU,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
+                 ):
+        super(SiameseNet, self).__init__()
+        
+        self.fc1 = nn.Linear(observation_dim, 64)
+        
+        self.fc2 = nn.Linear(64, 64)
+        
+        self.classifier = nn.Linear(128, num_actions)
+        
+        self.softmax = nn.Softmax(dim=-1)
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+        
+    def embedding(self, x):
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
+        
+    def forward(self, x1, x2):
+        x1 = self.embedding(x1)
+        
+        x2 = self.embedding(x2)
+        
+        x = torch.cat([x1, x2], dim=-1)
+        
+        x = self.classifier(x)
+        
+        x = self.softmax(x)
+        
+        return x 

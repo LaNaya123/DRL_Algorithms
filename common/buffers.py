@@ -72,7 +72,8 @@ class ReplayBuffer():
         obs, actions, rewards, next_obs, dones = [], [], [], [], []
         
         for ob, action, reward, next_ob, done in samples:
-            
+            if isinstance(ob, int):
+                ob = np.array([ob])
             if len(ob.shape) == 1:
                 ob = ob[np.newaxis, :]
                 
@@ -80,10 +81,12 @@ class ReplayBuffer():
                 action = [action]
             elif len(action.shape) == 1:
                 action = action[np.newaxis, :]
-                
+             
             if not isinstance(reward, np.ndarray):
                 reward = [reward]
-                
+            
+            if isinstance(next_ob, int):
+               next_ob = np.array([next_ob])
             if len(next_ob.shape) == 1:
                 next_ob = next_ob[np.newaxis, :]
                 

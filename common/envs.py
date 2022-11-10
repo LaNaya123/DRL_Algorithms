@@ -37,7 +37,7 @@ class Monitor():
             episode_info = {"episode returns": round(ep_r, 2), "episode length": ep_l}
             
             info["episode"] = episode_info
-            info["terminal_state"] = next_observation
+            info["real_terminal_state"] = next_observation
             
             next_observation = self.env.reset()
             

@@ -61,7 +61,7 @@ class OnPolicyAlgorithm():
     def _setup_param(self) -> None:
         self.episode_info_buffer = deque(maxlen=4)
         
-        self.num_episode = 0
+        self.num_episodes = 0
         
         self.current_timesteps = 0
         
@@ -93,7 +93,7 @@ class OnPolicyAlgorithm():
             episode_info = info.get("episode")
             if episode_info is not None:
                 self.episode_info_buffer.append(episode_info)
-                self.num_episode += 1
+                self.num_episodes += 1
                 
                 if self.logger is not None:
                     if self.logger.log_count == 0:
@@ -123,7 +123,7 @@ class OnPolicyAlgorithm():
             training_iterations += 1
             
             if training_iterations % self.log_interval == 0 and self.verbose > 0:
-                 print("episode", self.num_episode,
+                 print("episode", self.num_episodes,
                        "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                        )
         if self.logger is not None:
@@ -182,9 +182,11 @@ class OffPolicyAlgorithm():
     def _setup_param(self) -> None:
         self.episode_info_buffer = deque(maxlen=10)
         
-        self.num_episode = 0
+        self.num_episodes = 0
         
         self.current_timesteps = 0
+        
+        self.training_iterations = 0
     
     def _setup_logger(self) -> None:
         if self.log_dir is None:
@@ -215,7 +217,7 @@ class OffPolicyAlgorithm():
             episode_info = info.get("episode")
             if episode_info is not None:
                 self.episode_info_buffer.append(episode_info)
-                self.num_episode += 1
+                self.num_episodes += 1
                 
                 if self.logger is not None:
                     if self.logger.log_count == 0:
@@ -234,8 +236,6 @@ class OffPolicyAlgorithm():
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def learn(self) -> None:
-        self.training_iterations = 0
-        
         while self.current_timesteps < self.total_timesteps:
             
             self.rollout()
@@ -249,7 +249,7 @@ class OffPolicyAlgorithm():
                     self.training_iterations += 1
             
             if self.training_iterations % self.log_interval == 0 and self.verbose > 0:
-                 print("episode", self.num_episode,
+                 print("episode", self.num_episodes,
                        "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                        )
                  

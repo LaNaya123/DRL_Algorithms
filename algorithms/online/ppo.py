@@ -2,6 +2,7 @@
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Dict, Optional, Union
+import time
 import gym
 import numpy as np
 import torch
@@ -81,6 +82,7 @@ class PPO(OnPolicyAlgorithm):
         
         with torch.no_grad():
             for i in range(self.rollout_steps):
+
                 dists = self.actor(obs_to_tensor(self.obs).to(self.device))
             
                 action = dists.sample().cpu().detach().numpy()
@@ -99,7 +101,6 @@ class PPO(OnPolicyAlgorithm):
                 
     def train(self) -> None:
         for epoch in range(self.num_epochs):
-            
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
