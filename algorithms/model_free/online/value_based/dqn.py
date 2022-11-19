@@ -20,20 +20,20 @@ class DQN(OffPolicyAlgorithm):
                  rollout_steps: int = 16,
                  total_timesteps: int = 1e6, 
                  gradient_steps: int = 4,
+                 qnet_kwargs: Optional[Dict[str, Any]] = None,
                  learning_start: int = 1000,
                  buffer_size: int = 10000,
                  batch_size: int = 256,
                  target_update_interval: int = 20,
                  gamma: float = 0.99,
+                 exploration_initial_eps: float = 0.2,
+                 exploration_final_eps: float = 0.05,
+                 exploration_decay_steps: int = 10000,
                  verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 10,
                  device: str = "auto",
                  seed: Optional[int] = None,
-                 qnet_kwargs: Optional[Dict[str, Any]] = None,
-                 exploration_initial_eps: float = 0.2,
-                 exploration_final_eps: float = 0.05,
-                 exploration_decay_steps: int = 10000,
                 ):
         
         self.qnet_kwargs = qnet_kwargs
@@ -87,7 +87,7 @@ class DQN(OffPolicyAlgorithm):
         
     def rollout(self) -> None:
         for i in range(self.rollout_steps):
-            q = self.qnet(obs_to_tensor([self.obs]).to(self.device))
+            q = self.qnet(obs_to_tensor(self.obs).to(self.device))
             
             coin = random.random()
             if coin < self.current_eps:
@@ -110,49 +110,49 @@ class DQN(OffPolicyAlgorithm):
             
     
     def train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-            obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
+        obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
-            actions = actions.type("torch.LongTensor").to(self.device)
+        actions = actions.type("torch.LongTensor").to(self.device)
             
-            assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.observation_dim
-            assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
-            assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
-            assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
-            assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
+        assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.observation_dim
+        assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
+        assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
+        assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
+        assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-            q_next = self.target_qnet(next_obs)
-            q_next = q_next.max(dim=1, keepdim=True)[0]
+        q_next = self.target_qnet(next_obs)
+        q_next = q_next.max(dim=1, keepdim=True)[0]
             
-            q_target = rewards + self.gamma * (1 - dones) * q_next
+        q_target = rewards + self.gamma * (1 - dones) * q_next
             
-            q_values = self.qnet(obs)
+        q_values = self.qnet(obs)
             
-            q_a = q_values.gather(1, actions)
+        q_a = q_values.gather(1, actions)
 
-            loss = F.smooth_l1_loss(q_a, q_target)
+        loss = F.smooth_l1_loss(q_a, q_target)
 
-            self.qnet.optimizer.zero_grad()
-            loss.backward()
-            self.qnet.optimizer.step()
+        self.qnet.optimizer.zero_grad()
+        loss.backward()
+        self.qnet.optimizer.step()
 
-            if self.training_iterations % self.target_update_interval == 0:
-                self.target_qnet.load_state_dict(self.qnet.state_dict())
+        if self.training_iterations % self.target_update_interval == 0:
+            self.target_qnet.load_state_dict(self.qnet.state_dict())
                 
-            return (obs, actions, rewards, next_obs, dones)
+        return (obs, actions, rewards, next_obs, dones)
 
 if __name__ == "__main__":
-    env = gym.make("FrozenLake-v1")
+    env = gym.make("CartPole-v0")
     env = Monitor(env)
     #env = VecEnv(env, num_envs=4)
     dqn = DQN(env, 
               rollout_steps=8,
               total_timesteps=1e6,
-              gradient_steps=2,
+              gradient_steps=1,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=500,
               buffer_size=5000,
               batch_size=64,
               log_dir=None,
               log_interval=20,
-              seed=1,)
+              seed=2,)
     dqn.learn()

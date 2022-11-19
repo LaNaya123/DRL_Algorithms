@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-from typing import Any, Optional, Type, List, Dict
+from typing import Any, Union, Optional, Type, List, Dict
 import torch 
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributions as distributions
 from common.kfac import AddBias, KFACOptimizer
+from common.utils import BootstrappedHead
 
 class ACKTRActor(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
-                 num_action: int, 
+                 num_actions: int, 
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh,
                  net_arch: Optional[List[int]] = None,
@@ -19,7 +20,7 @@ class ACKTRActor(nn.Module):
         super(ACKTRActor, self).__init__()
         
         self.observation_dim = observation_dim
-        self.num_action = num_action
+        self.num_actions = num_actions
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
         self.net_arch = net_arch
@@ -39,10 +40,10 @@ class ACKTRActor(nn.Module):
                 activation_fn(),
                 nn.Linear(hidden_size, hidden_size),
                 activation_fn(),
-                nn.Linear(hidden_size, num_action),
+                nn.Linear(hidden_size, num_actions),
                 )
         
-        self.logstds = AddBias(torch.zeros(num_action))
+        self.logstds = AddBias(torch.zeros(num_actions))
         
         self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
     
@@ -115,11 +116,69 @@ class BCQActor(nn.Module):
         x = self.max_perturbation * self.max_action * x
         x = (x + x_a).clamp(-self.max_action, self.max_action)
         return x
+
+class BootstrappedQNetwork(nn.Module):
+    def __init__(self, 
+                 observation_dim: int, 
+                 num_actions: int, 
+                 num_heads: int = 10,
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 net_arch: Optional[List[int]] = None,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
+                ):
+        super(BootstrappedQNetwork, self).__init__()
         
+        self.observation_dim = observation_dim
+        self.num_actions = num_actions
+        self.num_heads = num_heads
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        self.net_arch = net_arch
+        
+        if net_arch is not None:
+            in_features = observation_dim
+            self.backbone = nn.ModuleList()
+            for i, out_features in enumerate(net_arch):
+                self.model.append(nn.Linear(in_features, out_features))
+                if i != len(net_arch) - 1:
+                    self.model.append(activation_fn())
+                in_features = out_features
+            
+            self.heads = nn.ModuleList([BootstrappedHead(out_features, num_actions) for k in range(num_heads)])
+        
+        else:
+            self.backbone = nn.Sequential(
+                nn.Linear(observation_dim, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                )
+            
+            self.heads = nn.ModuleList([BootstrappedHead(hidden_size, num_actions) for k in range(num_heads)])
+        
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+    
+    def forward(self, x: torch.Tensor, k: Optional[int] = None) -> Union[torch.Tensor, List[torch.Tensor]]:
+        if self.net_arch is not None:
+            for i, layer in enumerate(self.backbone):
+                x = layer(x)
+        else:
+            x = self.backbone(x)
+            
+        if k is not None:
+            x = self.heads[k](x)
+        else:
+            x = [head(x) for head in self.heads]
+        return x        
+    
 class DeepQNetwork(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
-                 num_action: int, 
+                 num_actions: int, 
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh,
                  net_arch: Optional[List[int]] = None,
@@ -129,7 +188,7 @@ class DeepQNetwork(nn.Module):
         super(DeepQNetwork, self).__init__()
         
         self.observation_dim = observation_dim
-        self.num_action = num_action
+        self.num_actions = num_actions
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
         self.net_arch = net_arch
@@ -149,7 +208,7 @@ class DeepQNetwork(nn.Module):
                 activation_fn(),
                 nn.Linear(hidden_size, hidden_size),
                 activation_fn(),
-                nn.Linear(hidden_size, num_action),
+                nn.Linear(hidden_size, num_actions),
                 )
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)

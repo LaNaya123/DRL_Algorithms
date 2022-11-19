@@ -428,3 +428,16 @@ class SiameseNet(nn.Module):
         x = self.softmax(x)
         
         return x 
+    
+class BootstrappedHead(nn.Module):
+    def __init__(self, input_size: int, num_actions: int, hidden_size: int = 64):
+        super(BootstrappedHead, self).__init__()
+        
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, num_actions)
+        
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        return x

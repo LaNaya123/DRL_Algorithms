@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Optional, Union, Dict
+from typing import Any, Optional, Dict
 import gym
 import random
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from common.envs import Monitor, VecEnv
+from common.envs import Monitor
 from dqn import DQN
 from common.utils import Mish, SiameseNet, obs_to_tensor, compute_ngu_intrinsic_reward
 
 class NGU(DQN):
     def __init__(self, 
-                 env: Union[Monitor, VecEnv], 
+                 env: Monitor, 
                  rollout_steps: int = 16,
                  total_timesteps: int = 1e6, 
                  gradient_steps: int = 4,
@@ -39,20 +39,20 @@ class NGU(DQN):
                  rollout_steps,
                  total_timesteps, 
                  gradient_steps,
+                 qnet_kwargs,
                  learning_start,
                  buffer_size,
                  batch_size,
                  target_update_interval,
                  gamma,
+                 exploration_initial_eps,
+                 exploration_final_eps,
+                 exploration_decay_steps,
                  verbose,
                  log_dir,
                  log_interval,
                  device,
                  seed,
-                 qnet_kwargs,
-                 exploration_initial_eps,
-                 exploration_final_eps,
-                 exploration_decay_steps,
             )
         
         self.beta = beta

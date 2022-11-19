@@ -161,27 +161,3 @@ if __name__ == "__main__":
             sns.heatmap(cov, cmap="magma")
             break
     print(cov)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    

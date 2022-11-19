@@ -47,8 +47,8 @@ class Monitor():
     
     def close(self) -> None:
         self.env.close()
-        
-def _worker(worker_remote: mp.connection.PipeConnection, parent_remote: mp.connection.PipeConnection, env: Monitor) -> None:
+
+def _worker(worker_remote, parent_remote, env: Monitor) -> None:
     parent_remote.close()
     
     while True:
@@ -130,3 +130,25 @@ class VecEnv():
     def close(self) -> None:
         for parent_remote in zip(self.parent_remotes):
             parent_remote.send(("close", None))
+            
+
+class ChainEnv(gym.Env):
+    def __init__(self):
+        super(ChainEnv, self).__init__()
+        self.states = (0, 1, 2, 3, 4) 
+        
+        self.actions = (0, 1)
+        
+        self.rewards = (-1, -1, 10, -1, -1)
+        
+        self.transitions = [
+            [[0.9, 0.1], [0.1, 0.9], [0, 0], [0, 0], [0, 0]],
+            [[0.9, 0.1], [0, 0], [0.1, 0.9], [0, 0], [0, 0]],
+            [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],  
+            [[0, 0], [0, 0], [0.9, 0.1], [0, 0], [0.1, 0.9]],
+            [[0, 0], [0, 0], [0, 0], [0.9, 0.1], [0.1, 0.9]],
+            ]   
+        
+        self.observation_space = spaces.Discrete(5)
+        
+        self.action_space = spaces.Discrete(2)
