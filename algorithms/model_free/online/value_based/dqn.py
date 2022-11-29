@@ -12,7 +12,7 @@ from common.envs import Monitor, VecEnv
 from common.policies import OffPolicyAlgorithm
 from common.models import DeepQNetwork
 from common.buffers import ReplayBuffer
-from common.utils import Mish, obs_to_tensor
+from common.utils.utils import Mish, obs_to_tensor
     
 class DQN(OffPolicyAlgorithm):
     def __init__(self, 
@@ -85,7 +85,7 @@ class DQN(OffPolicyAlgorithm):
         self.current_eps = self.exploration_initial_eps - ((self.exploration_initial_eps - self.exploration_final_eps) / self.exploration_decay_steps) * self.current_timesteps
         self.current_eps = max(self.current_eps, self.exploration_final_eps)
         
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         for i in range(self.rollout_steps):
             q = self.qnet(obs_to_tensor(self.obs).to(self.device))
             
@@ -109,7 +109,7 @@ class DQN(OffPolicyAlgorithm):
             self._update_exploration_eps()
             
     
-    def train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
         actions = actions.type("torch.LongTensor").to(self.device)

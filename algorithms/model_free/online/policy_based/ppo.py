@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union
-import time
+from typing import Any, Union, Optional, Dict, Tuple
 import gym
 import numpy as np
 import torch
@@ -13,7 +12,7 @@ from common.envs import Monitor, VecEnv
 from common.models import VPGActor, VCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
+from common.utils.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
 
 class PPO(OnPolicyAlgorithm):
     def __init__(self, 
@@ -58,16 +57,16 @@ class PPO(OnPolicyAlgorithm):
         self.ent_coef = ent_coef
         
     def _setup_model(self) -> None:
-        observation_dim = self.env.observation_space.shape[0]
+        self.observation_dim = self.env.observation_space.shape[0]
         
         if isinstance(self.env.action_space, spaces.Discrete):
-            num_action = self.env.action_space.n
+            self.num_actions = self.env.action_space.n
         elif isinstance(self.env.action_space, spaces.Box):
-            num_action = self.env.action_space.shape[0]
+            self.num_actions = self.env.action_space.shape[0]
 
-        self.actor = VPGActor(observation_dim, num_action, **self.actor_kwargs).to(self.device)
+        self.actor = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
 
-        self.critic = VCritic(observation_dim, **self.critic_kwargs).to(self.device)
+        self.critic = VCritic(self.observation_dim, **self.critic_kwargs).to(self.device)
         
         if self.verbose > 0:
             print(self.actor)
@@ -77,7 +76,7 @@ class PPO(OnPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         self.buffer.reset()
         
         with torch.no_grad():
@@ -87,9 +86,9 @@ class PPO(OnPolicyAlgorithm):
             
                 action = dists.sample().cpu().detach().numpy()
 
-                action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
+                clipped_action = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
 
-                next_obs, reward, done, info = self.env.step(action_clipped)
+                next_obs, reward, done, info = self.env.step(clipped_action)
             
                 self.buffer.add((self.obs, action, reward, next_obs, done))
             
@@ -99,7 +98,7 @@ class PPO(OnPolicyAlgorithm):
             
                 self._update_episode_info(info)
                 
-    def train(self) -> None:
+    def _train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         for epoch in range(self.num_epochs):
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
@@ -171,6 +170,8 @@ class PPO(OnPolicyAlgorithm):
                 clip_grad_norm_(self.critic.optimizer, self.max_grad_norm)
             
             self.critic.optimizer.step()
+        
+        return (obs, actions, rewards, next_obs, dones)
             
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")

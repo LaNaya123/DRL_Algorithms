@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.distributions as distributions
 from common.kfac import AddBias, KFACOptimizer
-from common.utils import BootstrappedHead
+from common.utils.models import BootstrappedHead
 
 class ACKTRActor(nn.Module):
     def __init__(self, 

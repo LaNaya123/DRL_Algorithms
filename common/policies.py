@@ -5,7 +5,7 @@ import random
 import torch
 from collections import deque
 from common.envs import Monitor, VecEnv
-from common.utils import safe_mean
+from common.utils.utils import safe_mean
 from common.logger import Logger
     
 class OnPolicyAlgorithm():
@@ -105,10 +105,10 @@ class OnPolicyAlgorithm():
                     self.logger.write(data)
                     self.logger.log_count += 1
                     
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
-    def train(self) -> None:
+    def _train(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def learn(self) -> None:
@@ -116,9 +116,9 @@ class OnPolicyAlgorithm():
         
         while self.current_timesteps < self.total_timesteps:
             
-            self.rollout()
+            self._rollout()
             
-            self.train()
+            self._train()
             
             training_iterations += 1
             
@@ -229,22 +229,22 @@ class OffPolicyAlgorithm():
                     self.logger.write(data)
                     self.logger.log_count += 1
                 
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
-    def train(self) -> None:
+    def _train(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def learn(self) -> None:
         while self.current_timesteps < self.total_timesteps:
             
-            self.rollout()
+            self._rollout()
             
             if self.current_timesteps > 0 and self.current_timesteps > self.learning_start:
                 
                 for _ in range(self.gradient_steps):
                     
-                    self.train()
+                    self._train()
             
                     self.training_iterations += 1
             

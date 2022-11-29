@@ -5,7 +5,7 @@ import torch.multiprocessing as mp
 import numpy as np
 import random
 from collections import deque
-from common.utils import swap_and_flatten
+from common.utils.utils import swap_and_flatten
 
 class RolloutBuffer():
     def __init__(self, buffer_size: int, device: torch.device):

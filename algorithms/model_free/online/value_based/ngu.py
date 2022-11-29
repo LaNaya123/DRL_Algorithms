@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Optional, Dict
+from typing import Any, Optional, List, Dict
 import gym
 import random
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from common.envs import Monitor
 from dqn import DQN
-from common.utils import Mish, SiameseNet, obs_to_tensor, compute_ngu_intrinsic_reward
+from common.utils.utils import Mish, obs_to_tensor
+from common.utils.models import SiameseNet
 
 class NGU(DQN):
     def __init__(self, 
@@ -57,7 +59,7 @@ class NGU(DQN):
         
         self.beta = beta
         
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         super()._setup_model()
         self.embedding_model = SiameseNet(
                     self.observation_dim,
@@ -65,6 +67,33 @@ class NGU(DQN):
                     )
         
         self.episodic_memory = [self.embedding_model.embedding(obs_to_tensor([self.obs]))]
+    
+    def _compute_intrinsic_reward(self,
+                                  controllable_state: torch.Tensor,
+                                  k: int = 10,
+                                  kernel_cluster_distance: float = 0.008,
+                                  kernel_epsilon: float = 0.0001,
+                                  c: float = 0.001,
+                                  sm: int = 8
+                                 ) -> float:
+    
+        state_dist = [(state, torch.dist(state, controllable_state)) for state in self.episodic_memory]
+        state_dist.sort(key=lambda x: x[1])
+        state_dist = state_dist[:k]
+    
+        dist = [d[1].item() for d in state_dist]
+        dist = np.array(dist)
+        dist = dist / (np.mean(dist) + 1e-7)
+        dist = np.max(dist - kernel_cluster_distance, 0)
+    
+        kernel = kernel_epsilon / (dist + kernel_epsilon)
+    
+        s = np.sqrt(np.sum(kernel)) + c
+
+        if np.isnan(s) or s > sm:
+            return 0
+    
+        return 1 / s
 
     def rollout(self) -> None:
         for i in range(self.rollout_steps):
@@ -86,7 +115,7 @@ class NGU(DQN):
             else:
                 controllable_state = self.embedding_model.embedding(obs_to_tensor([next_obs]))
                     
-            intrinsic_reward = compute_ngu_intrinsic_reward(self.episodic_memory, controllable_state)
+            intrinsic_reward = self._compute_intrinsic_reward(controllable_state)
             
             if done:
                 self.episodic_memory = [self.embedding_model.embedding(obs_to_tensor([next_obs]))]
