@@ -18,7 +18,8 @@ class OnPolicyAlgorithm():
                  td_method: str,
                  gamma: float,
                  gae_lambda: float,
-                 max_grad_norm: float, 
+                 max_grad_norm: float,
+                 auxiliary_buffer_size: Optional[int],
                  verbose: int,
                  log_dir: Optional[str],
                  log_interval: int,
@@ -35,6 +36,7 @@ class OnPolicyAlgorithm():
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.max_grad_norm = max_grad_norm
+        self.auxiliary_buffer_size = auxiliary_buffer_size
         self.verbose = verbose
         self.log_dir = log_dir
         self.log_interval = log_interval

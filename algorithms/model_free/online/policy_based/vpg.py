@@ -2,18 +2,16 @@
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Dict, Optional, Union
-import time
 import gym
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
 from common.envs import Monitor, VecEnv
 from common.models import VPGActor, VCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
+from common.utils.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
 
 class VPG(OnPolicyAlgorithm):
     def __init__(self, 
@@ -26,6 +24,7 @@ class VPG(OnPolicyAlgorithm):
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
                  max_grad_norm: Optional[float] = 0.5,
+                 auxiliary_buffer_size: Optional[int] = None,
                  verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 100,
@@ -43,6 +42,7 @@ class VPG(OnPolicyAlgorithm):
               gamma,
               gae_lambda,
               max_grad_norm,
+              auxiliary_buffer_size,
               verbose, 
               log_dir,
               log_interval,
@@ -70,7 +70,7 @@ class VPG(OnPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         self.buffer.reset()
         
         with torch.no_grad():
@@ -91,8 +91,7 @@ class VPG(OnPolicyAlgorithm):
             
                 self._update_episode_info(info)
             
-    def train(self) -> None:
-        time1 = time.time()
+    def _train(self) -> None:
         obs, actions, rewards, next_obs, dones = self.buffer.get()
             
         assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
@@ -127,7 +126,7 @@ class VPG(OnPolicyAlgorithm):
             
             advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
             advantages = advantages.to(self.device)
-                
+            
             target_values = advantages + values
                 
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -156,8 +155,6 @@ class VPG(OnPolicyAlgorithm):
             clip_grad_norm_(self.critic.optimizer, self.max_grad_norm)
             
         self.critic.optimizer.step()
-        time2 = time.time()
-        print("time_elapsed", time2 - time1)
             
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")

@@ -10,7 +10,7 @@ from common.envs import Monitor, VecEnv
 from common.policies import OffPolicyAlgorithm
 from common.models import DDPGActor, QCritic
 from common.buffers import ReplayBuffer
-from common.utils import OrnsteinUhlenbeckNoise, Mish, obs_to_tensor
+from common.utils.utils import OrnsteinUhlenbeckNoise, Mish, obs_to_tensor
 
 class DDPG(OffPolicyAlgorithm):
     def __init__(
@@ -82,7 +82,7 @@ class DDPG(OffPolicyAlgorithm):
         for target_param, param in zip(target.parameters(), online.parameters()):
             target_param.data.copy_(param.data * (1.0 - self.tau) + target_param.data * self.tau)
         
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         for i in range(self.rollout_steps):
             action = self.actor(obs_to_tensor(self.obs).to(self.device)).cpu().detach().numpy()
             
@@ -101,7 +101,7 @@ class DDPG(OffPolicyAlgorithm):
             
             self._update_episode_info(info)
     
-    def train(self) -> None:
+    def _train(self) -> None:
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
 
         assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]

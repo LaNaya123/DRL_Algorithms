@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Union, Optional, List, Dict
+from typing import Any, Union, Optional, Dict
 import gym
-import random
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from common.envs import Monitor
@@ -28,6 +26,7 @@ class ICM(PPO):
                  gae_lambda: float = 0.95,
                  beta: float = 0.01, 
                  max_grad_norm: Optional[float] = None,
+                 auxiliary_buffer_size: Optional[int] = None,
                  verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 100,
@@ -48,6 +47,7 @@ class ICM(PPO):
                  gamma,
                  gae_lambda, 
                  max_grad_norm,
+                 auxiliary_buffer_size,
                  verbose,
                  log_dir,
                  log_interval,

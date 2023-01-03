@@ -13,7 +13,7 @@ from common.envs import Monitor, VecEnv
 from common.models import ACKTRActor, ACKTRCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
+from common.utils.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
 from common.kfac import KFACOptimizer
 
 class ACKTR(OnPolicyAlgorithm):
@@ -27,6 +27,7 @@ class ACKTR(OnPolicyAlgorithm):
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
                  max_grad_norm: Optional[float] = None,
+                 auxiliary_buffer_size: Optional[int] = None,
                  verbose: int = 1,
                  log_dir: str = None,
                  log_interval: int = 100,
@@ -44,6 +45,7 @@ class ACKTR(OnPolicyAlgorithm):
             gamma,
             gae_lambda,
             max_grad_norm,
+            auxiliary_buffer_size,
             verbose, 
             log_dir,
             log_interval,
@@ -71,7 +73,7 @@ class ACKTR(OnPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         self.buffer.reset()
         
         with torch.no_grad():
@@ -96,8 +98,7 @@ class ACKTR(OnPolicyAlgorithm):
             
                 self._update_episode_info(info)
         
-    def train(self) -> None:
-            time1 = time.time()
+    def _train(self) -> None:
             obs, actions, rewards, next_obs, dones = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
@@ -186,8 +187,7 @@ class ACKTR(OnPolicyAlgorithm):
                 clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
 
             self.critic.optimizer.step()
-            time2 = time.time()
-            print(time2 - time1, "12312")
+
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)

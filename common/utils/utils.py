@@ -39,7 +39,9 @@ def compute_gae_advantage(rewards: torch.Tensor,
             next_value = values[i+1]
         delta = rewards[i] + gamma * (1 - dones[i]) * next_value - values[i]
         gae_advantage = delta + gamma * gae_lambda * (1 - dones[i]) * gae_advantage
+        
         advantages.append(gae_advantage)
+        
     return torch.FloatTensor(advantages[::-1]).view(-1, 1)
 
 def compute_td_target(rewards: torch.Tensor, 

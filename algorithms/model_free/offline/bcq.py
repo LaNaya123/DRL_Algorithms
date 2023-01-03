@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Dict 
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import gym
 import random
-from algorithms.online.ddpg import DDPG
-from common.envs import Monitor, VecEnv
+from algorithms.model_free.online.policy_based.ddpg import DDPG
+from common.envs import Monitor
 from common.models import BCQActor, QCritic
 from common.buffers import ReplayBuffer
-from common.utils import OrnsteinUhlenbeckNoise, Mish, clip_grad_norm_, VAE
+from common.utils.utils import OrnsteinUhlenbeckNoise, Mish
+from common.utils.models import VAE
 
 class BCQ():
     def __init__(
@@ -104,7 +105,7 @@ class BCQ():
         for target_param, param in zip(target.parameters(), online.parameters()):
             target_param.data.copy_(param.data * (1.0 - self.tau) + target_param.data * self.tau)
     
-    def _act(self, obs) -> np.ndarray:
+    def _step(self, obs) -> np.ndarray:
         with torch.no_grad():
             obs = torch.FloatTensor(obs.reshape(1, -1)).repeat(100, 1).to(self.device)
             acts = self.actor(obs, self.vae.decode(obs, self.device))
@@ -172,7 +173,7 @@ class BCQ():
                 self._polyak_update(self.critic2, self.target_critic2)
                 
             if iteration != 0 and iteration % self.eval_interval == 0:
-                self.inference()
+                self.evaluate()
                 
     def learn(self, **kwargs) -> None:
         if self.buffer is not None:
@@ -181,7 +182,7 @@ class BCQ():
             self._generate_buffer(**kwargs)
             self._train()
     
-    def inference(self) -> None:
+    def evaluate(self) -> None:
         avg_returns = 0.
         
         for _ in range(self.eval_episodes):
@@ -189,7 +190,7 @@ class BCQ():
             done = False
             
             while not done:
-                act = self._act(obs)
+                act = self._step(obs)
                 obs, r, done, _ = self.env.step(act)
                 avg_returns += r
         

@@ -5,7 +5,6 @@ from typing import Any, Union, Optional, Dict, Tuple
 import gym
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
 from common.envs import Monitor, VecEnv
@@ -28,6 +27,7 @@ class PPO(OnPolicyAlgorithm):
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
                  max_grad_norm: Optional[float] = None,
+                 auxiliary_buffer_size: Optional[int] = None,
                  verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 100,
@@ -45,6 +45,7 @@ class PPO(OnPolicyAlgorithm):
               gamma,
               gae_lambda,
               max_grad_norm,
+              auxiliary_buffer_size,
               verbose, 
               log_dir,
               log_interval,
@@ -73,12 +74,16 @@ class PPO(OnPolicyAlgorithm):
             print(self.critic)
         
         self.buffer = RolloutBuffer(self.rollout_steps, self.device)
-        
+        if self.auxiliary_buffer_size:
+            self.auxiliary_buffer = RolloutBuffer(self.auxiliary_buffer_size, self.device)
+        else:
+            self.auxiliary_buffer = None
+            
         self.obs = self.env.reset()
         
     def _rollout(self) -> None:
         self.buffer.reset()
-        
+
         with torch.no_grad():
             for i in range(self.rollout_steps):
 
@@ -97,6 +102,9 @@ class PPO(OnPolicyAlgorithm):
                 self.current_timesteps += self.env.num_envs
             
                 self._update_episode_info(info)
+
+                if self.auxiliary_buffer is not None:
+                    self.auxiliary_buffer.add((self.obs, action, reward, next_obs, done))
                 
     def _train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         for epoch in range(self.num_epochs):
@@ -186,4 +194,5 @@ if __name__ == "__main__":
               log_dir=None,
               seed=7,
              )
+    
     PPO.learn()

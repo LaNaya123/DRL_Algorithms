@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, Dict
 import gym
 import random
 import torch

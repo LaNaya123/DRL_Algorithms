@@ -12,7 +12,7 @@ class RolloutBuffer():
         self.buffer_size = buffer_size
         self.device = device
         
-        self.buffer = []
+        self.buffer = deque(maxlen=buffer_size)
         
     def reset(self) -> None:
         self.buffer.clear()
