@@ -4,11 +4,13 @@ sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Union, Optional, Dict
 import gym
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from common.envs import Monitor
 from ppo import PPO
-from common.utils.utils import Mish, obs_to_tensor
+from common.envs import Monitor
+from common.models import VPGActor
+from common.utils.functionality import Mish, obs_to_tensor, evaluate_policy
 from common.utils.models import CuriosityModel
 
 class ICM(PPO):
@@ -84,7 +86,7 @@ class ICM(PPO):
         with torch.no_grad():
             for i in range(self.rollout_steps):
 
-                dists = self.actor(obs_to_tensor(self.obs).to(self.device))
+                dists = self.policy_net(obs_to_tensor(self.obs).to(self.device))
             
                 action = dists.sample().cpu().detach().numpy()
 
@@ -116,14 +118,34 @@ class ICM(PPO):
 
         self.icm.optimizer.zero_grad()
         loss.backward()
-        self.icm.optimizer.step()        
+        self.icm.optimizer.step()     
+        
+    def save(self, path: str) -> None:
+        state_dict = self.policy_net.state_dict()
+        
+        with open(path, "wb") as f:
+            torch.save(state_dict, f)
+        
+        if self.verbose >= 1:
+            print("The vpg model has been saved successfully")
+    
+    def load(self, path: str) -> nn.Module:
+        with open(path, "rb") as f:
+            state_dict = torch.load(f)
+            
+            self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net.load_state_dict(state_dict)
+            self.policy_net = self.policy_net.to(self.device)
+ 
+        if self.verbose >= 1:
+            print("The vpg model has been loaded successfully")
         
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
     icm = ICM(env, 
               rollout_steps=8, 
-              total_timesteps=2e5, 
+              total_timesteps=1e4, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               beta = 0,
@@ -132,4 +154,10 @@ if __name__ == "__main__":
               log_dir=None,
               seed=7,
              )
+    
     icm.learn()
+    
+    icm.save("./model.ckpt")
+    model = icm.load("./model.ckpt")
+    
+    print(evaluate_policy(icm.policy_net, env))

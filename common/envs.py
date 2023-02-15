@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import Any, Dict, Optional, Union, Tuple
+from typing import Optional, Tuple, Dict
 import multiprocessing as mp
 import numpy as np
+import random
 import gym
 from gym import spaces
 
@@ -130,7 +131,49 @@ class VecEnv():
     def close(self) -> None:
         for parent_remote in zip(self.parent_remotes):
             parent_remote.send(("close", None))
+
+class NoopresetEnv(gym.Wrapper):
+    def __init__(self, env: gym.Env, noop_step: int = 30):
+        super(NoopresetEnv, self).__init__(env)
+        
+        self.noop_step = noop_step
+        
+        self.num_actions = env.action_space.n
+        
+    def reset(self) -> np.ndarray:
+        self.env.reset()
+        
+        for i in range(self.noop_step):
+            noop_action = random.randint(0, self.num_actions-1)
+            obs, _, done, _ = self.env.step(noop_action)
             
+            if done:
+                self.env.reset()
+        return obs
+    
+class SkipEnv(gym.Wrapper):
+    def __init__(self, env: gym.Env, skip_step: int = 4):
+        super(SkipEnv, self).__init__(env)
+        
+        self.skip_step = skip_step
+        
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
+        total_reward = 0
+        
+        for i in range(self.skip_step):
+            obs, reward, done, info = self.env.step(action)
+            total_reward += reward
+            
+            if done:
+                break
+        return obs, total_reward, done, info
+    
+class CliprewardEnv(gym.RewardWrapper):
+    def __init__(self, env):
+        super(CliprewardEnv, self).__init__(env)
+        
+    def reward(self, reward):
+        return np.sign(reward)
 
 class ChainEnv(gym.Env):
     def __init__(self):

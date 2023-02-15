@@ -3,16 +3,13 @@ import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Dict, Optional, Union, Tuple
 import gym
-import gym.spaces as spaces
-import random
-import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from dqn import DQN
 from common.envs import Monitor, VecEnv
 from common.models import DeepQNetwork
-from common.buffers import ReplayBuffer
-from common.utils.utils import Mish, obs_to_tensor
+from common.utils.functionality import Mish, evaluate_policy
     
 class DDQN(DQN):
     def __init__(self, 
@@ -20,6 +17,7 @@ class DDQN(DQN):
                  rollout_steps: int = 16,
                  total_timesteps: int = 1e6, 
                  gradient_steps: int = 4,
+                 n_steps: int = 1,
                  qnet_kwargs: Optional[Dict[str, Any]] = None,
                  learning_start: int = 1000,
                  buffer_size: int = 10000,
@@ -41,6 +39,7 @@ class DDQN(DQN):
                  rollout_steps,
                  total_timesteps, 
                  gradient_steps,
+                 n_steps,
                  qnet_kwargs,
                  learning_start,
                  buffer_size,
@@ -68,27 +67,49 @@ class DDQN(DQN):
         assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
         assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-        q_next = self.qnet(next_obs)        
+        q_next = self.policy_net(next_obs)        
         next_acts = q_next.max(dim=1, keepdim=True)[1]
-        q_next = self.target_qnet(next_obs)
+        q_next = self.target_policy_net(next_obs)
         q_next = q_next.gather(dim=1, index=next_acts)
         
         q_target = rewards + self.gamma * (1 - dones) * q_next
             
-        q_values = self.qnet(obs)
+        q_values = self.policy_net(obs)
             
         q_a = q_values.gather(1, actions)
 
         loss = F.smooth_l1_loss(q_a, q_target)
 
-        self.qnet.optimizer.zero_grad()
+        self.policy_net.optimizer.zero_grad()
         loss.backward()
-        self.qnet.optimizer.step()
+        self.policy_net.optimizer.step()
 
         if self.training_iterations % self.target_update_interval == 0:
-            self.target_qnet.load_state_dict(self.qnet.state_dict())
+            self.target_policy_net.load_state_dict(self.policy_net.state_dict())
                 
         return (obs, actions, rewards, next_obs, dones)
+    
+    def save(self, path: str) -> None:
+        state_dict = self.policy_net.state_dict()
+        
+        with open(path, "wb") as f:
+            torch.save(state_dict, f)
+        
+        if self.verbose >= 1:
+            print("The dqn model has been saved successfully")
+    
+    def load(self, path: str) -> nn.Module:
+        with open(path, "rb") as f:
+            state_dict = torch.load(f)
+            
+            self.policy_net = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+            self.policy_net.load_state_dict(state_dict)
+            self.policy_net = self.policy_net.to(self.device)
+ 
+        if self.verbose >= 1:
+            print("The double_dqn model has been loaded successfully")
+            
+        return self.policy_net
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
@@ -96,8 +117,9 @@ if __name__ == "__main__":
     #env = VecEnv(env, num_envs=4)
     ddqn = DDQN(env, 
               rollout_steps=8,
-              total_timesteps=1e6,
+              total_timesteps=3e4,
               gradient_steps=1,
+              n_steps=4,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=500,
               buffer_size=5000,
@@ -105,4 +127,10 @@ if __name__ == "__main__":
               log_dir=None,
               log_interval=20,
               seed=2,)
+    
     ddqn.learn()
+    
+    ddqn.save("./model.ckpt")
+    model = ddqn.load("./model.ckpt")
+    
+    print(evaluate_policy(ddqn.policy_net, env))

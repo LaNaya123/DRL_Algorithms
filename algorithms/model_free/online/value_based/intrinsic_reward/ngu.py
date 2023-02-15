@@ -8,9 +8,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from algorithms.model_free.online.value_based.dqn_variants.dqn import DQN
+from common.models import DeepQNetwork
 from common.envs import Monitor
-from dqn import DQN
-from common.utils.utils import Mish, obs_to_tensor
+from common.utils.functionality import Mish, obs_to_tensor, evaluate_policy
 from common.utils.models import SiameseNet
 
 class NGU(DQN):
@@ -19,6 +20,7 @@ class NGU(DQN):
                  rollout_steps: int = 16,
                  total_timesteps: int = 1e6, 
                  gradient_steps: int = 4,
+                 n_steps: int = 1,
                  learning_start: int = 1000,
                  buffer_size: int = 10000,
                  batch_size: int = 256,
@@ -41,6 +43,7 @@ class NGU(DQN):
                  rollout_steps,
                  total_timesteps, 
                  gradient_steps,
+                 n_steps,
                  qnet_kwargs,
                  learning_start,
                  buffer_size,
@@ -95,9 +98,9 @@ class NGU(DQN):
     
         return 1 / s
 
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         for i in range(self.rollout_steps):
-            q = self.qnet(obs_to_tensor([self.obs]).to(self.device))
+            q = self.policy_net(obs_to_tensor([self.obs]).to(self.device))
             
             coin = random.random()
             if coin < self.current_eps:
@@ -135,8 +138,8 @@ class NGU(DQN):
             self._update_exploration_eps()
             
                 
-    def train(self) -> None:
-        obs, actions, rewards, next_obs, dones = super().train()
+    def _train(self) -> None:
+        obs, actions, rewards, next_obs, dones = super()._train()
 
         preds = self.embedding_model(obs, next_obs)
         labels = F.one_hot(actions.squeeze(dim=1), preds.shape[1]).type("torch.FloatTensor")
@@ -145,13 +148,34 @@ class NGU(DQN):
         self.embedding_model.optimizer.zero_grad()
         embedding_loss.backward()
         self.embedding_model.optimizer.step()
-  
+        
+    def save(self, path: str) -> None:
+        state_dict = self.policy_net.state_dict()
+        
+        with open(path, "wb") as f:
+            torch.save(state_dict, f)
+        
+        if self.verbose >= 1:
+            print("The dqn model has been saved successfully")
     
+    def load(self, path: str) -> nn.Module:
+        with open(path, "rb") as f:
+            state_dict = torch.load(f)
+            
+            self.policy_net = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+            self.policy_net.load_state_dict(state_dict)
+            self.policy_net = self.policy_net.to(self.device)
+ 
+        if self.verbose >= 1:
+            print("The dqn model has been loaded successfully")
+            
+        return self.policy_net
+        
 if __name__ == "__main__":
     env = gym.make("FrozenLake-v1")
     env = Monitor(env)
     ngu = NGU(env, 
-              total_timesteps=1e6,
+              total_timesteps=1e4,
               gradient_steps=2,
               rollout_steps=8,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
@@ -162,4 +186,10 @@ if __name__ == "__main__":
               log_dir=None,
               log_interval=20,
               seed=2,)
+    
     ngu.learn()
+    
+    ngu.save("./model.ckpt")
+    model = ngu.load("./model.ckpt")
+    
+    print(evaluate_policy(ngu.policy_net, env))

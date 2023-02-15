@@ -5,7 +5,7 @@ import torch.multiprocessing as mp
 import numpy as np
 import random
 from collections import deque
-from common.utils.utils import swap_and_flatten
+from common.utils.functionality import swap_and_flatten
 
 class RolloutBuffer():
     def __init__(self, buffer_size: int, device: torch.device):
@@ -54,14 +54,36 @@ class RolloutBuffer():
         return len(self.buffer)
     
 class ReplayBuffer():
-    def __init__(self, buffer_size: int, device: torch.device):
+    def __init__(self, buffer_size: int, device: torch.device, n_steps: int = 1, gamma: float = 0.99):
         self.buffer_size = buffer_size
         self.device = device
+        self.n_steps = n_steps
+        self.gamma = gamma
         
         self.buffer = deque(maxlen=buffer_size)
+        
+        self.n_steps_buffer = deque(maxlen=n_steps)
+        
+    def _update_n_steps_info(self) -> Tuple[np.ndarray, np.ndarray, Union[float, np.ndarray], np.ndarray, Union[bool, np.ndarray]]:
+        state, action = self.n_steps_buffer[0][:2]
+        reward, next_state, done = self.n_steps_buffer[-1][-3:]
+
+        for transition in reversed(list(self.n_steps_buffer)[:-1]):
+            r, next_s, d = transition[-3:]
+
+            reward = r + self.gamma * reward * (1 - d)
+            
+            next_state, done = (next_s, d) if d else (next_state, done)
+
+        return (state, action, reward, next_state, done)
 
     def add(self, transition: Tuple[np.ndarray, np.ndarray, Union[float, np.ndarray], np.ndarray, Union[bool, np.ndarray]]) -> None:
-        self.buffer.append(transition)
+        self.n_steps_buffer.append(transition)
+        
+        if len(self.n_steps_buffer) >= self.n_steps:
+            transition = self._update_n_steps_info()
+        
+            self.buffer.append(transition)
         
     def sample(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         try:
@@ -111,12 +133,12 @@ class ReplayBuffer():
         return len(self.buffer)
     
 class SharedReplayBuffer():
-    def __init__(self, buffer_size: int, num_envs: int, observation_dim: int):
+    def __init__(self, buffer_size: int, num_envs: int, observation_dim: int, num_actions: int):
         self.buffer_size = buffer_size
         self.num_envs = num_envs
         
         self.observations = torch.zeros((buffer_size, num_envs, observation_dim)).share_memory_()
-        self.actions = torch.zeros((buffer_size, num_envs, 1)).share_memory_()
+        self.actions = torch.zeros((buffer_size, num_envs, num_actions)).share_memory_()
         self.rewards = torch.zeros((buffer_size, num_envs)).share_memory_()
         self.next_observations =  torch.zeros((buffer_size, num_envs, observation_dim)).share_memory_()
         self.dones = torch.zeros((buffer_size, num_envs)).share_memory_()

@@ -5,13 +5,14 @@ from typing import Any, Union, Optional, Dict, Tuple
 import gym
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
 from common.envs import Monitor, VecEnv
 from common.models import VPGActor, VCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor
+from common.utils.functionality import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
 
 class PPO(OnPolicyAlgorithm):
     def __init__(self, 
@@ -65,13 +66,13 @@ class PPO(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             self.num_actions = self.env.action_space.shape[0]
 
-        self.actor = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
+        self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
 
-        self.critic = VCritic(self.observation_dim, **self.critic_kwargs).to(self.device)
+        self.value_net = VCritic(self.observation_dim, **self.critic_kwargs).to(self.device)
         
         if self.verbose > 0:
-            print(self.actor)
-            print(self.critic)
+            print(self.policy_net)
+            print(self.value_net)
         
         self.buffer = RolloutBuffer(self.rollout_steps, self.device)
         if self.auxiliary_buffer_size:
@@ -87,7 +88,7 @@ class PPO(OnPolicyAlgorithm):
         with torch.no_grad():
             for i in range(self.rollout_steps):
 
-                dists = self.actor(obs_to_tensor(self.obs).to(self.device))
+                dists = self.policy_net(obs_to_tensor(self.obs).to(self.device))
             
                 action = dists.sample().cpu().detach().numpy()
 
@@ -116,7 +117,7 @@ class PPO(OnPolicyAlgorithm):
             assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-            values = self.critic(obs)
+            values = self.value_net(obs)
             
             if  self.td_method == "td":
                 target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
@@ -138,7 +139,7 @@ class PPO(OnPolicyAlgorithm):
                 if dones[-1]:
                     last_value = 0
                 else:
-                    last_value = self.critic(next_obs[-1])
+                    last_value = self.value_net(next_obs[-1])
             
                 advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
                 advantages = advantages.to(self.device)
@@ -147,7 +148,7 @@ class PPO(OnPolicyAlgorithm):
                 
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             
-            dists = self.actor(obs)
+            dists = self.policy_net(obs)
             
             entropy = -dists.entropy().mean()
             
@@ -160,33 +161,55 @@ class PPO(OnPolicyAlgorithm):
             actor_loss2 = torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
             actor_loss = -torch.min(actor_loss1, actor_loss2).mean() + self.ent_coef * entropy
             
-            self.actor.optimizer.zero_grad()
+            self.policy_net.optimizer.zero_grad()
             actor_loss.backward()
             
             if self.max_grad_norm:
-                clip_grad_norm_(self.actor.optimizer, self.max_grad_norm)
+                clip_grad_norm_(self.policy_net.optimizer, self.max_grad_norm)
             
-            self.actor.optimizer.step()
+            self.policy_net.optimizer.step()
         
             critic_loss = F.mse_loss(target_values.detach(), values)
             
-            self.critic.optimizer.zero_grad()
+            self.value_net.optimizer.zero_grad()
             
             critic_loss.backward()
             
             if self.max_grad_norm:
-                clip_grad_norm_(self.critic.optimizer, self.max_grad_norm)
+                clip_grad_norm_(self.value_net.optimizer, self.max_grad_norm)
             
-            self.critic.optimizer.step()
+            self.value_net.optimizer.step()
         
         return (obs, actions, rewards, next_obs, dones)
+    
+    def save(self, path: str) -> None:
+        state_dict = self.policy_net.state_dict()
+        
+        with open(path, "wb") as f:
+            torch.save(state_dict, f)
+        
+        if self.verbose >= 1:
+            print("The ppo model has been saved successfully")
+    
+    def load(self, path: str) -> nn.Module:
+        with open(path, "rb") as f:
+            state_dict = torch.load(f)
+            
+            self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net.load_state_dict(state_dict)
+            self.policy_net = self.policy_net.to(self.device)
+ 
+        if self.verbose >= 1:
+            print("The ppo model has been loaded successfully")
+            
+        return self.policy_net
             
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    PPO = PPO(env, 
+    ppo = PPO(env, 
               rollout_steps=8, 
-              total_timesteps=2e5, 
+              total_timesteps=1e5, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
@@ -195,4 +218,9 @@ if __name__ == "__main__":
               seed=7,
              )
     
-    PPO.learn()
+    ppo.learn()
+    
+    ppo.save("./model.ckpt")
+    model = ppo.load("./model.ckpt")
+    
+    print(evaluate_policy(ppo.policy_net, env))

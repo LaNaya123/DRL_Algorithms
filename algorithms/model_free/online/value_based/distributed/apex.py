@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 import gym
 import numpy as np
 import torch
@@ -13,9 +13,8 @@ from common.envs import Monitor
 from common.policies import OffPolicyAlgorithm
 from common.models import DeepQNetwork
 from common.buffers import SharedReplayBuffer
-from common.utils import Mish, obs_to_tensor, safe_mean
+from common.utils.functionality import Mish, obs_to_tensor, safe_mean
         
-
 class APEX(OffPolicyAlgorithm):
     def __init__(
                  self, 
@@ -25,16 +24,16 @@ class APEX(OffPolicyAlgorithm):
                  batch_size: int = 256,
                  target_update_interval: int = 20,
                  gamma: float = 0.99,
-                 verbose: int = 1,
-                 log_dir: Optional[str] = None,
-                 log_interval: int = 10,
-                 seed: Optional[int] = None,
                  qnet_kwargs: Optional[Dict[str, Any]] = None,
                  exploration_initial_eps: float = 0.2,
                  exploration_final_eps: float = 0.05,
                  exploration_decay_steps: int = 10000,
                  num_actors: int = 4,
                  sychronize_freq: int = 2,
+                 verbose: int = 1,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 10,
+                 seed: Optional[int] = None,
                 ):
     
         self.qnet_kwargs = qnet_kwargs
@@ -54,6 +53,7 @@ class APEX(OffPolicyAlgorithm):
                  env, 
                  None,
                  None, 
+                 None,
                  None,
                  None,
                  buffer_size,
@@ -86,7 +86,7 @@ class APEX(OffPolicyAlgorithm):
         
         self.obs = self.env.reset()
         
-        self.buffer = SharedReplayBuffer(self.buffer_size, num_envs, observation_dim)
+        self.buffer = SharedReplayBuffer(self.buffer_size, num_envs, observation_dim, num_actions)
         
     def _setup_param(self) -> None:
         manager = mp.Manager()
@@ -125,9 +125,10 @@ class APEX(OffPolicyAlgorithm):
                            * self.current_timesteps.value
         self.current_eps = max(self.current_eps, self.exploration_final_eps)
         
-    def rollout(self) -> None:
+    def _rollout(self) -> None:
         while self.training_iterations.value < self.num_iterations:
-            q = self.actor(obs_to_tensor(self.obs))
+            with torch.no_grad():
+                q = self.actor(obs_to_tensor(self.obs))
             
             coin = random.random()
             if coin < self.current_eps:
@@ -151,7 +152,7 @@ class APEX(OffPolicyAlgorithm):
             if self.training_iterations.value != 0 and self.training_iterations.value % self.sychronize_freq == 0:
                 self.actor.load_state_dict(self.shared_dict["model_state_dict"])
     
-    def train(self) -> None:
+    def _train(self) -> None:
         while self.training_iterations.value < self.num_iterations:
             if len(self.buffer) < self.batch_size:
                 continue
@@ -161,7 +162,7 @@ class APEX(OffPolicyAlgorithm):
             actions = actions.type("torch.LongTensor")
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
-            assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
+            assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.n
             assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
             assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
@@ -201,6 +202,28 @@ class APEX(OffPolicyAlgorithm):
             p = mp.Process(target=self.rollout, args=(()))
             p.start()
             p.join()
+            
+    def save(self, path: str) -> None:
+        state_dict = self.qnet.state_dict()
+        
+        with open(path, "wb") as f:
+            torch.save(state_dict, f)
+        
+        if self.verbose >= 1:
+            print("The dqn model has been saved successfully")
+    
+    def load(self, path: str) -> nn.Module:
+        with open(path, "rb") as f:
+            state_dict = torch.load(f)
+            
+            self.qnet = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+            self.qnet.load_state_dict(state_dict)
+            self.qnet = self.qnet.to(self.device)
+ 
+        if self.verbose >= 1:
+            print("The dqn model has been loaded successfully")
+            
+        return self.qnet
         
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")

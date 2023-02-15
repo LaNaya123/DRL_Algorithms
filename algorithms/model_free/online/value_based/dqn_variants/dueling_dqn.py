@@ -1,21 +1,19 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Optional, Union, Dict
+from typing import Any, Dict, Optional, Union, Tuple
 import gym
 import gym.spaces as spaces
-import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from common.envs import Monitor, VecEnv
 from dqn import DQN
+from common.envs import Monitor, VecEnv
+from common.models import DuelingQNetwork
 from common.buffers import ReplayBuffer
-from common.models import BootstrappedQNetwork
-from common.utils.functionality import Mish, obs_to_tensor, evaluate_policy
-
-class BootstrappedDQN(DQN):
+from common.utils.functionality import Mish, evaluate_policy
+    
+class DuelingDQN(DQN):
     def __init__(self, 
                  env: Union[Monitor, VecEnv], 
                  rollout_steps: int = 16,
@@ -23,7 +21,6 @@ class BootstrappedDQN(DQN):
                  gradient_steps: int = 4,
                  n_steps: int = 1,
                  qnet_kwargs: Optional[Dict[str, Any]] = None,
-                 num_heads: int = 5,
                  learning_start: int = 1000,
                  buffer_size: int = 10000,
                  batch_size: int = 256,
@@ -39,9 +36,7 @@ class BootstrappedDQN(DQN):
                  seed: Optional[int] = None,
                 ):
         
-        self.num_heads = num_heads
-
-        super(BootstrappedDQN, self).__init__(
+        super(DuelingDQN, self).__init__(
                  env, 
                  rollout_steps,
                  total_timesteps, 
@@ -61,8 +56,7 @@ class BootstrappedDQN(DQN):
                  log_interval,
                  device,
                  seed,
-            )
-        
+                )
     def _setup_model(self):
         if isinstance(self.env.observation_space, spaces.Box):
             self.observation_dim = self.env.observation_space.shape[0]
@@ -71,8 +65,8 @@ class BootstrappedDQN(DQN):
         
         self.num_actions = self.env.action_space.n
         
-        self.policy_net = BootstrappedQNetwork(self.observation_dim, self.num_actions, self.num_heads, **self.qnet_kwargs).to(self.device)
-        self.target_policy_net = BootstrappedQNetwork(self.observation_dim, self.num_actions, self.num_heads, **self.qnet_kwargs).to(self.device)
+        self.policy_net = DuelingQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs).to(self.device)
+        self.target_policy_net = DuelingQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs).to(self.device)
         self.target_policy_net.load_state_dict(self.policy_net.state_dict())
             
         if self.verbose > 0:
@@ -81,34 +75,8 @@ class BootstrappedDQN(DQN):
         self.buffer = ReplayBuffer(self.buffer_size, self.device)
         
         self.obs = self.env.reset()
-
-    def _rollout(self) -> None:
-        self.head_id = random.randint(0, self.num_heads-1)
         
-        for i in range(self.rollout_steps):
-            q = self.policy_net(obs_to_tensor(self.obs), self.head_id).to(self.device)
-            
-            coin = random.random()
-            if coin < self.current_eps:
-                action = [random.randint(0, self.env.action_space.n - 1) for _ in range(self.env.num_envs)]
-                action = np.asarray(action)[:, np.newaxis]
-            else:
-                action = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
-
-            next_obs, reward, done, info = self.env.step(action)
-
-            self.buffer.add((self.obs, action, reward, next_obs, done))
-
-            self.obs = next_obs
-            
-            self.current_timesteps += self.env.num_envs
-            
-            self._update_episode_info(info)
-            
-            self._update_exploration_eps()
-            
-                
-    def _train(self) -> None:
+    def _train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
         actions = actions.type("torch.LongTensor").to(self.device)
@@ -119,12 +87,14 @@ class BootstrappedDQN(DQN):
         assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
         assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-        q_next = self.target_policy_net(next_obs, self.head_id)
-        q_next = q_next.max(dim=1, keepdim=True)[0]
-            
+        q_next = self.policy_net(next_obs)        
+        next_acts = q_next.max(dim=1, keepdim=True)[1]
+        q_next = self.target_policy_net(next_obs)
+        q_next = q_next.gather(dim=1, index=next_acts)
+        
         q_target = rewards + self.gamma * (1 - dones) * q_next
             
-        q_values = self.policy_net(obs, self.head_id)
+        q_values = self.policy_net(obs)
             
         q_a = q_values.gather(1, actions)
 
@@ -136,7 +106,9 @@ class BootstrappedDQN(DQN):
 
         if self.training_iterations % self.target_update_interval == 0:
             self.target_policy_net.load_state_dict(self.policy_net.state_dict())
-            
+                
+        return (obs, actions, rewards, next_obs, dones)
+    
     def save(self, path: str) -> None:
         state_dict = self.policy_net.state_dict()
         
@@ -144,13 +116,13 @@ class BootstrappedDQN(DQN):
             torch.save(state_dict, f)
         
         if self.verbose >= 1:
-            print("The bootstrapped_dqn model has been saved successfully")
+            print("The dqn model has been saved successfully")
     
     def load(self, path: str) -> nn.Module:
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = BootstrappedQNetwork(self.observation_dim, self.num_actions, self.num_heads, **self.qnet_kwargs)
+            self.policy_net = DuelingQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs)
             self.policy_net.load_state_dict(state_dict)
             self.policy_net = self.policy_net.to(self.device)
  
@@ -158,26 +130,27 @@ class BootstrappedDQN(DQN):
             print("The dqn model has been loaded successfully")
             
         return self.policy_net
-    
+
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     env = Monitor(env)
-    bootdqn = BootstrappedDQN(env, 
+    #env = VecEnv(env, num_envs=4)
+    dueling_dqn = DuelingDQN(env, 
+              rollout_steps=8,
               total_timesteps=3e4,
               gradient_steps=1,
-              rollout_steps=8,
-              qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}},
-              num_heads=2,
+              n_steps=1,
+              qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=500,
               buffer_size=5000,
               batch_size=64,
               log_dir=None,
               log_interval=20,
-              seed=10,)
+              seed=7,)
     
-    bootdqn.learn()
+    dueling_dqn.learn()
     
-    bootdqn.save("./model.ckpt")
-    model = bootdqn.load("./model.ckpt")
+    dueling_dqn.save("./model.ckpt")
+    model = dueling_dqn.load("./model.ckpt")
     
-    print(evaluate_policy(bootdqn.policy_net, env))
+    print(evaluate_policy(dueling_dqn.policy_net, env))

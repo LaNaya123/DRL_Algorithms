@@ -5,7 +5,7 @@ import random
 import torch
 from collections import deque
 from common.envs import Monitor, VecEnv
-from common.utils.utils import safe_mean
+from common.utils.functionality import safe_mean, obs_to_tensor
 from common.logger import Logger
     
 class OnPolicyAlgorithm():
@@ -130,6 +130,12 @@ class OnPolicyAlgorithm():
                        )
         if self.logger is not None:
             self.logger.close()
+            
+    def save(self, path: str) -> None:
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
+        
+    def load(self, path: str) -> None:
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
                  
 class OffPolicyAlgorithm():
     def __init__(self, 
@@ -137,6 +143,7 @@ class OffPolicyAlgorithm():
                  rollout_steps: int,
                  total_timesteps: int, 
                  gradient_steps: int,
+                 n_steps: int,
                  learning_start: int,
                  buffer_size: int,
                  batch_size: int,
@@ -153,6 +160,7 @@ class OffPolicyAlgorithm():
         self.rollout_steps = rollout_steps
         self.total_timesteps = total_timesteps
         self.gradient_steps = gradient_steps
+        self.n_steps = n_steps
         self.learning_start = learning_start
         self.buffer_size = buffer_size
         self.batch_size=batch_size
@@ -230,7 +238,7 @@ class OffPolicyAlgorithm():
                     data = [self.num_episode] + data
                     self.logger.write(data)
                     self.logger.log_count += 1
-                
+    
     def _rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
@@ -257,3 +265,9 @@ class OffPolicyAlgorithm():
                  
         if self.logger is not None:
             self.logger.close()
+            
+    def save(self, path: str) -> None:
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
+        
+    def load(self, path: str) -> None:
+        raise NotImplementedError("You have to overwrite this method in your own algorithm:)")

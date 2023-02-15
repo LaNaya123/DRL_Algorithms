@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-from typing import Union
+from typing import Union, Tuple
+from common.envs import Monitor, VecEnv
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import gym.spaces as spaces
 
 def safe_mean(arr: np.ndarray) -> float:
     return np.nan if len(arr) == 0 else round(np.mean(arr), 2)
@@ -64,6 +66,57 @@ def compute_rtg(rewards: np.ndarray, gamma: float = 0.99) -> np.ndarray:
     for i in reversed(range(len(rewards)-1)):
         rtg[i] = rewards[i] + gamma * rtg[i+1]
     return rtg
+
+def evaluate_policy(model: nn.Module, env: Union[Monitor, VecEnv], num_eval_episodes: int = 10) -> Tuple[float, float, float, float]:
+    num_envs = env.num_envs
+
+    episode_rewards = []
+    episode_lengths = []
+    
+    episode_counts = np.zeros(num_envs, dtype="int")
+    episode_counts_target = np.array([(num_eval_episodes + i) // num_envs for i in range(num_envs)], dtype="int")
+    
+    current_rewards = np.zeros(num_envs)
+    current_lengths = np.zeros(num_envs, dtype="int")
+    
+    observations = env.reset()
+    
+    while (episode_counts < episode_counts_target).any():
+        if isinstance(observations, int):
+            observations = [observations]
+
+        actions = model.predict(obs_to_tensor(observations))
+        if isinstance(env, spaces.Box):
+            actions = np.clip(actions, env.action_space.low.min(), env.action_space.high.max())
+        
+        observations, rewards, dones, infos = env.step(actions)
+
+        current_rewards += rewards
+        current_lengths += 1
+        
+        for i in range(num_envs):
+            if isinstance(dones, bool):
+                if dones:
+                    episode_rewards.append(current_rewards[i])
+                    episode_lengths.append(current_lengths[i])
+                    episode_counts[i] += 1
+                    current_rewards[i] = 0
+                    current_lengths[i] = 0
+            else:
+                if dones[i]:
+                    episode_rewards.append(current_rewards[i])
+                    episode_lengths.append(current_lengths[i])
+                    episode_counts[i] += 1
+                    current_rewards[i] = 0
+                    current_lengths[i] = 0
+                    
+    mean_rewards = np.mean(episode_rewards)
+    std_rewards = np.std(episode_rewards)
+        
+    mean_lengths = np.mean(episode_lengths)
+    std_lengths = np.std(episode_lengths)
+    
+    return (mean_rewards, std_rewards, mean_lengths, std_lengths)
  
 class Mish(nn.Module):
     def __init__(self): 
