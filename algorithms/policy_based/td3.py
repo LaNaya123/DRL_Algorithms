@@ -7,13 +7,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ddpg import DDPG
 import common.models as models
 from common.envs import Monitor, VecEnv
-from common.policies import OffPolicyAlgorithm
 from common.buffers import ReplayBuffer
-from common.utils import OrnsteinUhlenbeckNoise, Mish, obs_to_tensor, evaluate_policy
+from common.utils import OrnsteinUhlenbeckNoise, Mish, evaluate_policy
 
-class DDPG(OffPolicyAlgorithm):
+class TD3(DDPG):
     def __init__(
                  self, 
                  env: Union[Monitor, VecEnv], 
@@ -27,6 +27,7 @@ class DDPG(OffPolicyAlgorithm):
                  target_update_interval: int = 20,
                  actor_kwargs: Optional[Dict[str, Any]] = None,
                  critic_kwargs: Optional[Dict[str, Any]] = None,
+                 policy_delay: int = 2,
                  ou_noise: Optional[OrnsteinUhlenbeckNoise] = None,
                  tau: float = 0.95,
                  gamma: float = 0.99,
@@ -35,13 +36,8 @@ class DDPG(OffPolicyAlgorithm):
                  verbose: int = 1,
                  seed: Optional[int] = None,
                 ):
-        
-        self.actor_kwargs = {} if actor_kwargs is None else actor_kwargs
-        self.critic_kwargs = {} if critic_kwargs is None else critic_kwargs
-        self.ou_noise = ou_noise
-        self.tau = tau 
-        
-        super(DDPG, self).__init__(
+    
+        super(TD3, self).__init__( 
                  env, 
                  rollout_steps,
                  total_timesteps, 
@@ -51,12 +47,18 @@ class DDPG(OffPolicyAlgorithm):
                  buffer_size,
                  batch_size,
                  target_update_interval,
+                 actor_kwargs,
+                 critic_kwargs,
+                 ou_noise,
+                 tau,
                  gamma,
-                 log_dir, 
+                 log_dir,
                  log_interval,
                  verbose,
                  seed,
-            )
+        )
+        
+        self.policy_delay = policy_delay
         
     def _setup_model(self) -> None:
         self.observation_dim = self.env.observation_space.shape[0]
@@ -67,41 +69,22 @@ class DDPG(OffPolicyAlgorithm):
         self.target_policy_net = models.DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
         self.target_policy_net.load_state_dict(self.policy_net.state_dict())
         
-        self.value_net = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
-        self.target_value_net = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
-        self.target_value_net.load_state_dict(self.value_net.state_dict())
+        self.value_net1 = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
+        self.target_value_net1 = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
+        self.target_value_net1.load_state_dict(self.value_net1.state_dict())
+        
+        self.value_net2 = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
+        self.target_value_net2 = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
+        self.target_value_net2.load_state_dict(self.value_net2.state_dict())
             
         if self.verbose > 0:
             print(self.policy_net)
-            print(self.value_net)
+            print(self.value_net1)
 
         self.buffer = ReplayBuffer(self.buffer_size)
         
         self.obs = self.env.reset()
         
-    def _polyak_update(self, online, target) -> None:
-        for target_param, param in zip(target.parameters(), online.parameters()):
-            target_param.data.copy_(param.data * (1.0 - self.tau) + target_param.data * self.tau)
-        
-    def _rollout(self) -> None:
-        for i in range(self.rollout_steps):
-            action = self.policy_net(obs_to_tensor(self.obs)).detach().numpy()
-            
-            action *= self.env.action_space.high
-            
-            if self.ou_noise:
-                action = action + self.ou_noise()
-            
-            next_obs, reward, done, info = self.env.step(action)
-            
-            self.buffer.add((self.obs, action, reward/100., next_obs, done))
-            
-            self.obs = next_obs
-            
-            self.current_timesteps += self.env.num_envs
-            
-            self._update_episode_info(info)
-    
     def _train(self) -> None:
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
 
@@ -113,25 +96,35 @@ class DDPG(OffPolicyAlgorithm):
         
         with torch.no_grad():
             next_a = self.target_policy_net(next_obs)
-            next_q = self.target_value_net(next_obs, next_a)
+            
+            next_q1 = self.target_value_net1(next_obs, next_a)
+            next_q2 = self.target_value_net2(next_obs, next_a)
+            
+            next_q = torch.min(torch.cat([next_q1, next_q2], dim=1), dim=1, keepdim=True)[0]
+
             target_q = rewards + self.gamma * (1 - dones) * next_q
             
-        critic_loss = F.smooth_l1_loss(self.value_net(obs, actions), target_q)
-            
-        self.value_net.optimizer.zero_grad()
-        critic_loss.backward()
-        self.value_net.optimizer.step()
-    
-        actor_loss = -self.value_net(obs,self.policy_net(obs)).mean()
-            
-        self.policy_net.optimizer.zero_grad()
-        actor_loss.backward()
-        self.policy_net.optimizer.step()
+        critic_loss1 = F.smooth_l1_loss(self.value_net1(obs, actions), target_q)
+        self.value_net1.optimizer.zero_grad()
+        critic_loss1.backward()
+        self.value_net1.optimizer.step()
+        
+        critic_loss2 = F.smooth_l1_loss(self.value_net2(obs, actions), target_q)
+        self.value_net2.optimizer.zero_grad()
+        critic_loss2.backward()
+        self.value_net2.optimizer.step()
+        
+        if self.training_iterations % self.policy_delay == 0:
+            actor_loss = -self.value_net1(obs, self.policy_net(obs)).mean()
+            self.policy_net.optimizer.zero_grad()
+            actor_loss.backward()
+            self.policy_net.optimizer.step()
             
         if self.training_iterations % self.target_update_interval == 0:
             self._polyak_update(self.policy_net, self.target_policy_net)
-            self._polyak_update(self.value_net, self.target_value_net)
-    
+            self._polyak_update(self.value_net1, self.target_value_net1)
+            self._polyak_update(self.value_net2, self.target_value_net2)
+
     def save(self, path: str) -> None:
         state_dict = self.policy_net.state_dict()
         
@@ -139,7 +132,7 @@ class DDPG(OffPolicyAlgorithm):
             torch.save(state_dict, f)
         
         if self.verbose >= 1:
-            print("The ddpg model has been saved successfully")
+            print("The td3 model has been saved successfully")
     
     def load(self, path: str) -> nn.Module:
         with open(path, "rb") as f:
@@ -150,7 +143,7 @@ class DDPG(OffPolicyAlgorithm):
             self.policy_net = self.policy_net.to(self.device)
  
         if self.verbose >= 1:
-            print("The ddpg model has been loaded successfully")
+            print("The td3 model has been loaded successfully")
             
         return self.policy_net
     
@@ -160,15 +153,16 @@ if __name__ == "__main__":
     env = Monitor(env)
     #env = VecEnv(env, num_envs=4)
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
-    ddpg = DDPG(env, 
-              total_timesteps=1e4, 
+    td3 = TD3(env, 
+              total_timesteps=1e6, 
               gradient_steps=4,
               rollout_steps=8, 
               n_steps=1,
-              learning_start=500,
+              learning_start=1000,
               buffer_size=10000,
               batch_size=64,
               target_update_interval=1,
+              policy_delay=1,
               log_dir=None,
               log_interval=80,
               seed=12,
@@ -176,9 +170,4 @@ if __name__ == "__main__":
               critic_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}},
               ou_noise=ou_noise)
     
-    ddpg.learn()
-    
-    ddpg.save("./model.ckpt")
-    model = ddpg.load("./model.ckpt")
-    
-    print(evaluate_policy(ddpg.policy_net, env))
+    td3.learn()
