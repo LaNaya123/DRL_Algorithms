@@ -7,11 +7,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import common.models as models
 from common.envs import Monitor, VecEnv
 from common.policies import OffPolicyAlgorithm
-from common.models import DDPGActor, QCritic
 from common.buffers import ReplayBuffer
-from common.utils.functionality import OrnsteinUhlenbeckNoise, Mish, obs_to_tensor, evaluate_policy
+from common.utils import OrnsteinUhlenbeckNoise, Mish, obs_to_tensor, evaluate_policy
 
 class DDPG(OffPolicyAlgorithm):
     def __init__(
@@ -25,16 +25,15 @@ class DDPG(OffPolicyAlgorithm):
                  buffer_size: int = 10000,
                  batch_size: int = 256,
                  target_update_interval: int = 20,
-                 gamma: float = 0.99,
-                 verbose: int = 1,
-                 log_dir: Optional[str] = None,
-                 log_interval: int = 10,
-                 device: str = "auto",
-                 seed: Optional[int] = None,
                  actor_kwargs: Optional[Dict[str, Any]] = None,
                  critic_kwargs: Optional[Dict[str, Any]] = None,
                  ou_noise: Optional[OrnsteinUhlenbeckNoise] = None,
                  tau: float = 0.95,
+                 gamma: float = 0.99,
+                 log_dir: Optional[str] = None,
+                 log_interval: int = 10,
+                 verbose: int = 1,
+                 seed: Optional[int] = None,
                 ):
         
         self.actor_kwargs = {} if actor_kwargs is None else actor_kwargs
@@ -53,10 +52,9 @@ class DDPG(OffPolicyAlgorithm):
                  batch_size,
                  target_update_interval,
                  gamma,
-                 verbose,
                  log_dir, 
                  log_interval,
-                 device,
+                 verbose,
                  seed,
             )
         
@@ -65,19 +63,19 @@ class DDPG(OffPolicyAlgorithm):
         
         self.num_actions = self.env.action_space.shape[0]
         
-        self.policy_net = DDPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
-        self.target_policy_net = DDPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
+        self.policy_net = models.DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
+        self.target_policy_net = models.DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
         self.target_policy_net.load_state_dict(self.policy_net.state_dict())
         
-        self.value_net = QCritic(self.observation_dim, self.num_actions, **self.critic_kwargs).to(self.device)
-        self.target_value_net = QCritic(self.observation_dim, self.num_actions, **self.critic_kwargs).to(self.device)
+        self.value_net = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
+        self.target_value_net = models.Q1(self.observation_dim, self.num_actions, **self.critic_kwargs)
         self.target_value_net.load_state_dict(self.value_net.state_dict())
             
         if self.verbose > 0:
             print(self.policy_net)
             print(self.value_net)
 
-        self.buffer = ReplayBuffer(self.buffer_size, self.device)
+        self.buffer = ReplayBuffer(self.buffer_size)
         
         self.obs = self.env.reset()
         
@@ -87,7 +85,7 @@ class DDPG(OffPolicyAlgorithm):
         
     def _rollout(self) -> None:
         for i in range(self.rollout_steps):
-            action = self.policy_net(obs_to_tensor(self.obs).to(self.device)).cpu().detach().numpy()
+            action = self.policy_net(obs_to_tensor(self.obs)).detach().numpy()
             
             action *= self.env.action_space.high
             

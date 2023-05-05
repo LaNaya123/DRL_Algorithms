@@ -3,7 +3,6 @@ import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
 from typing import Any, Dict, Optional, Union, Tuple
 import gym
-import gym.spaces as spaces
 import random
 import numpy as np
 import torch
@@ -11,9 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from common.envs import Monitor, VecEnv, CliprewardEnv
 from common.policies import OffPolicyAlgorithm
-from common.models import DeepQNetwork
+import common.models as models
 from common.buffers import ReplayBuffer
-from common.utils.functionality import Mish, obs_to_tensor, evaluate_policy
+from common.utils import Mish, obs_to_tensor, evaluate_policy
     
 class DQN(OffPolicyAlgorithm):
     def __init__(self, 
@@ -31,14 +30,13 @@ class DQN(OffPolicyAlgorithm):
                  exploration_initial_eps: float = 0.2,
                  exploration_final_eps: float = 0.05,
                  exploration_decay_steps: int = 10000,
-                 verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 10,
-                 device: str = "auto",
+                 verbose: int = 1,
                  seed: Optional[int] = None,
                 ):
-        
-        self.qnet_kwargs = qnet_kwargs
+
+        self.qnet_kwargs = qnet_kwargs if qnet_kwargs else {}
         
         self.exploration_initial_eps = exploration_initial_eps
         self.exploration_final_eps = exploration_final_eps
@@ -56,29 +54,25 @@ class DQN(OffPolicyAlgorithm):
                  batch_size,
                  target_update_interval,
                  gamma,
-                 verbose,
                  log_dir,
                  log_interval,
-                 device,
+                 verbose,
                  seed,
                 )
         
     def _setup_model(self) -> None:
-        if isinstance(self.env.observation_space, spaces.Box):
-            self.observation_dim = self.env.observation_space.shape[0]
-        elif isinstance(self.env.observation_space, spaces.Discrete):
-            self.observation_dim = 1
+        self.observation_dim = self.env.observation_space.shape[0]
         
         self.num_actions = self.env.action_space.n
         
-        self.policy_net = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs).to(self.device)
-        self.target_policy_net = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs).to(self.device)
+        self.policy_net = models.DQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+        self.target_policy_net = models.DQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
         self.target_policy_net.load_state_dict(self.policy_net.state_dict())
             
         if self.verbose > 0:
             print(self.policy_net) 
 
-        self.buffer = ReplayBuffer(self.buffer_size, self.device, self.n_steps)
+        self.buffer = ReplayBuffer(self.buffer_size, self.n_steps)
         
         self.obs = self.env.reset()
         
@@ -90,7 +84,7 @@ class DQN(OffPolicyAlgorithm):
 
     def _rollout(self) -> None:
         for i in range(self.rollout_steps):
-            q = self.policy_net(obs_to_tensor(self.obs).to(self.device))
+            q = self.policy_net(obs_to_tensor(self.obs))
             
             coin = random.random()
             if coin < self.current_eps:
@@ -114,7 +108,7 @@ class DQN(OffPolicyAlgorithm):
     def _train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
             
-        actions = actions.type("torch.LongTensor").to(self.device)
+        actions = actions.type("torch.LongTensor")
             
         assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.observation_dim
         assert isinstance(actions, torch.Tensor) and actions.shape[1] == 1
@@ -139,8 +133,6 @@ class DQN(OffPolicyAlgorithm):
 
         if self.training_iterations % self.target_update_interval == 0:
             self.target_policy_net.load_state_dict(self.policy_net.state_dict())
-                
-        return (obs, actions, rewards, next_obs, dones)
     
     def save(self, path: str) -> None:
         state_dict = self.policy_net.state_dict()
@@ -155,9 +147,8 @@ class DQN(OffPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = DeepQNetwork(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+            self.policy_net = models.DQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
             self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
  
         if self.verbose >= 1:
             print("The dqn model has been loaded successfully")

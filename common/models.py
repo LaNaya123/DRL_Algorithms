@@ -2,14 +2,14 @@
 from typing import Any, Union, Optional, Type, List, Dict, Tuple
 import torch 
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torch.distributions as distributions
 import numpy as np
 import random
-from common.utils.optimizers import AddBias, KFACOptimizer
-from common.utils.models import BootstrappedHead
+from common.optimizers import AddBias, KFACOptimizer
 
-class ACKTRActor(nn.Module):
+class ACKTR(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int, 
@@ -18,7 +18,7 @@ class ACKTRActor(nn.Module):
                  optimizer_kwargs: Dict[str, Any] = {"lr": 0.25},
                 ):
         
-        super(ACKTRActor, self).__init__()
+        super(ACKTR, self).__init__()
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
@@ -37,10 +37,10 @@ class ACKTRActor(nn.Module):
         
         self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
     
-    def forward(self, x: torch.Tensor, device: torch.device) -> distributions.Normal:
+    def forward(self, x: torch.Tensor) -> distributions.Normal:
         means = self.model(x)
         
-        zeros = torch.zeros(means.size()).to(device)
+        zeros = torch.zeros(means.size())
         logstds = self.logstds(zeros)
         stds = torch.clamp(logstds.exp(), 7e-4, 50)
         
@@ -59,97 +59,49 @@ class ACKTRActor(nn.Module):
         if len(a.shape) == 2:
             a = a.squeeze(axis=0)
         return a
-        
-class BCQActor(nn.Module):
-    def __init__(self,
-                 observation_dim: int,
-                 num_actions: int,
-                 max_action: torch.Tensor,
-                 hidden_size: int = 64,
-                 activation_fn: Type[nn.Module] = nn.Tanh,
-                 optimizer: Type[optim.Optimizer] = optim.Adam,
-                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4},
-                 max_perturbation: float = 0.05,
-                ):
-        
-        super(BCQActor, self).__init__()
-        
-        self.observation_dim = observation_dim
-        self.num_actions = num_actions
-        self.max_action = max_action
-        self.hidden_size = hidden_size
-        self.activation_fn = activation_fn
-        self.max_perturbation = max_perturbation
-        
-       
-        self.model = nn.Sequential(
-            nn.Linear(observation_dim + num_actions, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, num_actions),
-            nn.Tanh(),
-            )
-        
-        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def forward(self, x_s: torch.Tensor, x_a: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([x_s, x_a], dim=1)
-        x = self.model(x)
-        x = self.max_perturbation * self.max_action * x
-        x = (x + x_a).clamp(-self.max_action, self.max_action)
-        return x
-
-class BootstrappedQNetwork(nn.Module):
+class C51(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int, 
-                 num_heads: int = 10,
+                 num_atoms: int = 51, 
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh,
                  optimizer: Type[optim.Optimizer] = optim.Adam,
                  optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
                 ):
-        super(BootstrappedQNetwork, self).__init__()
+        
+        super(C51, self).__init__()
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
-        self.num_heads = num_heads
+        self.num_atoms = num_atoms
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
-
-        self.backbone = nn.Sequential(
+        
+        self.model = nn.Sequential(
             nn.Linear(observation_dim, hidden_size),
             activation_fn(),
             nn.Linear(hidden_size, hidden_size),
             activation_fn(),
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(hidden_size, num_actions * self.num_atoms),
             )
-            
-        self.heads = nn.ModuleList([BootstrappedHead(hidden_size, num_actions) for k in range(num_heads)])
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
-    def forward(self, x: torch.Tensor, k: Optional[int] = None) -> Union[torch.Tensor, List[torch.Tensor]]:
-        x = self.backbone(x)
-            
-        if k is not None:
-            x = self.heads[k](x)
-        else:
-            x = [head(x) for head in self.heads]
-        return x    
-
-    def predict(self, x: torch.Tensor) -> np.ndarray:
-        k = random.randint(0, self.num_heads-1)
-        
-        with torch.no_grad():
-            x = self.backbone(x)
-            q = self.heads[k](x)
-
-            a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
-            return a
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        v_probs = self.model(x)
+        v_probs = F.softmax(v_probs.view(-1, self.num_actions, self.num_atoms), dim=2)
+        return v_probs
     
-class DeepQNetwork(nn.Module):
+    def predict(self, x: torch.Tensor) -> np.ndarray:
+        with torch.no_grad():
+            q = self.model(x)
+            
+        a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
+        return a
+            
+class DQN(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int, 
@@ -158,7 +110,7 @@ class DeepQNetwork(nn.Module):
                  optimizer: Type[optim.Optimizer] = optim.Adam,
                  optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
                 ):
-        super(DeepQNetwork, self).__init__()
+        super(DQN, self).__init__()
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
@@ -185,9 +137,8 @@ class DeepQNetwork(nn.Module):
             
         a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
         return a
-        
-
-class DDPGActor(nn.Module):
+    
+class DDPG(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int,
@@ -197,7 +148,7 @@ class DDPGActor(nn.Module):
                  optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
                 ):
         
-        super(DDPGActor, self).__init__()
+        super(DDPG, self).__init__()
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
@@ -224,7 +175,7 @@ class DDPGActor(nn.Module):
             x = self.model(x).cpu().detach().numpy()
         return x
 
-class DuelingQNetwork(nn.Module):
+class DuelingDQN(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int, 
@@ -233,7 +184,7 @@ class DuelingQNetwork(nn.Module):
                  optimizer: Type[optim.Optimizer] = optim.Adam,
                  optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
                 ):
-        super(DuelingQNetwork, self).__init__()
+        super(DuelingDQN, self).__init__()
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
@@ -270,133 +221,92 @@ class DuelingQNetwork(nn.Module):
         q = v + adv - adv.mean()
         a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
         return a 
-
-class RecurrentQNetwork(nn.Module):
+    
+class VPG(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int, 
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh,
                  optimizer: Type[optim.Optimizer] = optim.Adam,
-                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
-                ):
-        super(RecurrentQNetwork, self).__init__()
-        
-        self.observation_dim = observation_dim
-        self.num_actions = num_actions
-        self.hidden_size = hidden_size
-        self.activation_fn = activation_fn
-
-        self.lstm = nn.LSTM(observation_dim + num_actions + 1, hidden_size, batch_first=True),
-        self.head = nn.Sequential(
-            activation_fn(),
-            nn.Linear(hidden_size, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, num_actions),
-            )
-        
-        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
-    
-    def forward(self, x: torch.Tensor, hs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        _, hidden_states = self.lstm(x, hs)
-        x = self.head(hidden_states[0])
-        return x, hidden_states 
-    
-class VPGActor(nn.Module):
-    def __init__(self, 
-                 observation_dim: int, 
-                 num_action: int, 
-                 hidden_size: int = 64, 
-                 activation_fn: Type[nn.Module] = nn.Tanh,
-                 optimizer: Type[optim.Optimizer] = optim.Adam,
-                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4},
+                 action_space="Box"
                 ):
         
-        super(VPGActor, self).__init__()
+        super(VPG, self).__init__()
         
         self.observation_dim = observation_dim
-        self.num_action = num_action
+        self.num_action = num_actions
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
+        self.action_space = action_space
         
-        self.model = nn.Sequential(
-            nn.Linear(observation_dim, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, num_action),
-            )
+        if self.action_space == "Box":
+            self.model = nn.Sequential(
+                nn.Linear(observation_dim, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, num_actions),
+                )
+            
+            logstds_param = nn.Parameter(torch.full((num_actions,), 0.1))
+            self.register_parameter("logstds", logstds_param)
         
-        logstds_param = nn.Parameter(torch.full((num_action,), 0.1))
-        self.register_parameter("logstds", logstds_param)
+        elif self.action_space == "Discrete":
+            self.model = nn.Sequential(
+                nn.Linear(observation_dim, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, hidden_size),
+                activation_fn(),
+                nn.Linear(hidden_size, num_actions),
+                nn.Softmax(dim=-1)
+                )
         
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        means = self.model(x)
+        if self.action_space == "Box":
+            means = self.model(x)
          
-        stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
+            stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
         
-        return torch.distributions.Normal(means, stds) 
-    
+            return distributions.Normal(means, stds) 
+        
+        else:
+            probs = self.model(x)
+            
+            return distributions.Categorical(probs)
+        
     def predict(self, x: torch.Tensor) -> np.ndarray:
         means = self.model(x)
         stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
         dists = torch.distributions.Normal(means, stds) 
         a = dists.sample().cpu().detach().numpy()
         return a
-        
-
-class ACKTRCritic(nn.Module):
-    def __init__(self, 
-                 observation_dim: int, 
-                 hidden_size: int = 64, 
-                 activation_fn: Type[nn.Module] = nn.Tanh, 
-                 optimizer_kwargs: Dict[str, Any] = {"lr": 0.25},
-                ):
-        
-        super(ACKTRCritic, self).__init__()
-        
-        self.observation_dim = observation_dim
-        self.hidden_size = hidden_size
-        self.activation_fn = activation_fn
-        
-        self.model = nn.Sequential(
-            nn.Linear(observation_dim, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, hidden_size),
-            activation_fn(),
-            nn.Linear(hidden_size, 1),
-            )
-        
-        self.optimizer = KFACOptimizer(self, **optimizer_kwargs)
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.model(x)
-        return x
-    
-class QCritic(nn.Module):
+      
+class Q1(nn.Module):
     def __init__(self, 
                  observation_dim: int,
-                 num_action: int, 
+                 num_actions: int, 
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh, 
                  optimizer: Type[optim.Optimizer] = optim.Adam,
                  optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
                 ):
         
-        super(QCritic, self).__init__()
+        super(Q1, self).__init__()
         
         self.observation_dim = observation_dim
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
 
         self.fc_s = nn.Linear(observation_dim, hidden_size)
-        self.fc_a = nn.Linear(num_action, hidden_size)
+        self.fc_a = nn.Linear(num_actions, hidden_size)
         self.fc_q1 = nn.Linear(hidden_size * 2, hidden_size)
         self.fc_q2 = nn.Linear(hidden_size, 1)
         
-        self.optimizer = optim.Adam(self.parameters(), **optimizer_kwargs)
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
 
     def forward(self, x_s: torch.Tensor, x_a: torch.Tensor) -> torch.Tensor:
         h_s = self.activation_fn()(self.fc_s(x_s))
@@ -406,7 +316,37 @@ class QCritic(nn.Module):
         x = self.fc_q2(x)
         return x
     
-class VCritic(nn.Module):
+class Q2(nn.Module):
+    def __init__(self, 
+                 observation_dim: int,
+                 num_actions: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh, 
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
+                ):
+        
+        super(Q2, self).__init__()
+        
+        self.observation_dim = observation_dim
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        
+        self.model = nn.Sequential(
+            nn.Linear(observation_dim, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, num_actions),
+            )
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.model(x)
+        return x
+    
+class V(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  hidden_size: int = 64, 
@@ -415,7 +355,7 @@ class VCritic(nn.Module):
                  optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3},
                 ):
         
-        super(VCritic, self).__init__()
+        super(V, self).__init__()
         
         self.observation_dim = observation_dim
         self.hidden_size = hidden_size
@@ -429,7 +369,10 @@ class VCritic(nn.Module):
             nn.Linear(hidden_size, 1),
             )
         
-        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+        if optimizer == KFACOptimizer:
+            self.optimizer = optimizer(self, **optimizer_kwargs)
+        else:
+            self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.model(x)

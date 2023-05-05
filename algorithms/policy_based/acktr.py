@@ -9,10 +9,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
 from common.envs import Monitor, VecEnv
-from common.models import ACKTRActor, ACKTRCritic
+import common.models as models
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils.functionality import clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
+from common.optimizers import KFACOptimizer
+from common.utils import clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
 
 class ACKTR(OnPolicyAlgorithm):
     def __init__(self, 
@@ -25,11 +26,9 @@ class ACKTR(OnPolicyAlgorithm):
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
                  max_grad_norm: Optional[float] = None,
-                 auxiliary_buffer_size: Optional[int] = None,
-                 verbose: int = 1,
                  log_dir: str = None,
                  log_interval: int = 100,
-                 device: str = "auto",
+                 verbose: int = 1,
                  seed: int = 0,
                  ):
         
@@ -43,14 +42,12 @@ class ACKTR(OnPolicyAlgorithm):
             gamma,
             gae_lambda,
             max_grad_norm,
-            auxiliary_buffer_size,
-            verbose, 
             log_dir,
             log_interval,
-            device,
+            verbose, 
             seed,
             )
-    
+        
     def _setup_model(self) -> None:
         self.observation_dim = self.env.observation_space.shape[0]
         
@@ -59,15 +56,29 @@ class ACKTR(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             self.num_actions = self.env.action_space.shape[0]
 
-        self.policy_net = ACKTRActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
-
-        self.value_net = ACKTRCritic(self.observation_dim, **self.critic_kwargs).to(self.device)
+        self.policy_net = models.ACKTR(self.observation_dim, self.num_actions, **self.actor_kwargs)
+        
+        if not self.critic_kwargs:
+            self.critic_kwargs = {"optimizer": KFACOptimizer, "optimizer_kwargs":{"lr": 0.25}}
+        else:
+            if "optimizer" not in self.critic_kwargs:
+                self.critic_kwargs["optimizer"] = KFACOptimizer
+            else:
+                if self.critic_kwargs["optimizer"] != KFACOptimizer:
+                    raise TypeError("The optimizer must be K-FAC optimizer")
+                    
+            if "optimizer_kwargs" not in self.critic_kwargs: 
+                self.critic_kwargs["optimizer_kwargs"] = {"lr": 0.25}
+            else:
+                if "lr" not in self.critic_kwargs["optimizer_kwargs"]:
+                    self.critic_kwargs["optimizer_kwargs"]["lr"] = 0.25
+        self.value_net = models.V(self.observation_dim, **self.critic_kwargs)
         
         if self.verbose > 0:
             print(self.policy_net)
             print(self.value_net)
         
-        self.buffer = RolloutBuffer(self.rollout_steps, self.device)
+        self.buffer = RolloutBuffer(self.rollout_steps)
         
         self.obs = self.env.reset()
         
@@ -77,9 +88,9 @@ class ACKTR(OnPolicyAlgorithm):
         with torch.no_grad():
             
             for i in range(self.rollout_steps):
-                dists = self.policy_net(obs_to_tensor(self.obs).to(self.device), self.device)
+                dists = self.policy_net(obs_to_tensor(self.obs))
                 
-                action = dists.sample().cpu().detach().numpy()
+                action = dists.sample().detach().numpy()
                 
                 if not self.env.is_vec:
                     action = action.squeeze(axis=0)
@@ -132,13 +143,12 @@ class ACKTR(OnPolicyAlgorithm):
                         last_value = self.value_net(next_obs[-1])
             
                 advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
-                advantages = advantages.to(self.device)
                 
                 target_values = advantages + values
                 
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             
-            dists = self.policy_net(obs, self.device)
+            dists = self.policy_net(obs)
             
             log_probs = dists.log_prob(actions)
              
@@ -151,11 +161,11 @@ class ACKTR(OnPolicyAlgorithm):
                 pg_fisher_loss.backward(retain_graph=True)
                 self.policy_net.optimizer.acc_stats = False
 
-            actor_loss = -(log_probs * advantages.detach()).mean()
+            self.policy_loss = -(log_probs * advantages.detach()).mean()
             
             self.policy_net.optimizer.zero_grad()
             
-            actor_loss.backward()
+            self.policy_loss.backward()
             
             if self.max_grad_norm is not None:
                 clip_grad_norm_(self.policy_net.optimizer, self.max_grad_norm)
@@ -165,7 +175,7 @@ class ACKTR(OnPolicyAlgorithm):
             if self.value_net.optimizer.steps % self.value_net.optimizer.Ts == 0:
                 self.value_net.zero_grad()
                 
-                value_noise = torch.randn(values.size()).to(self.device)
+                value_noise = torch.randn(values.size())
                 
                 sample_values = values + value_noise
                 
@@ -175,11 +185,11 @@ class ACKTR(OnPolicyAlgorithm):
                 vf_fisher_loss.backward(retain_graph=True)
                 self.value_net.optimizer.acc_stats = False
 
-            critic_loss = F.smooth_l1_loss(target_values.detach(), values)
+            self.value_loss = F.smooth_l1_loss(target_values.detach(), values)
             
             self.value_net.optimizer.zero_grad()
             
-            critic_loss.backward()
+            self.value_loss.backward()
             
             if self.max_grad_norm is not None:
                 clip_grad_norm_(self.value_net.optimizer, self.max_grad_norm)
@@ -199,9 +209,9 @@ class ACKTR(OnPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = ACKTRActor(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = ACKTR(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.policy_net = self.policy_net
  
         if self.verbose >= 1:
             print("The acktr model has been loaded successfully")
@@ -214,18 +224,12 @@ if __name__ == "__main__":
     #env = VecEnv(env, num_envs=4)
     acktr = ACKTR(env, 
               rollout_steps=8, 
-              total_timesteps=3e4, 
-              actor_kwargs={"activation_fn": nn.ReLU}, 
+              total_timesteps=3e6,
               critic_kwargs={"activation_fn": nn.ReLU},
-              max_grad_norm=None,
+              max_grad_norm=0.5,
               td_method="td_lambda",
-              log_dir=None,
-              seed=12,
+              log_dir="C:/Users/lanaya/Desktop",
+              seed=22,
              )
     
     acktr.learn()
-    
-    acktr.save("./model.ckpt")
-    model = acktr.load("./model.ckpt")
-    
-    print(evaluate_policy(acktr.policy_net, env))

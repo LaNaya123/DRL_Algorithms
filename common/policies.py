@@ -5,9 +5,9 @@ import random
 import torch
 from collections import deque
 from common.envs import Monitor, VecEnv
-from common.utils.functionality import safe_mean, obs_to_tensor
-from common.logger import Logger
-    
+from common.utils import safe_mean, obs_to_tensor
+from torch.utils.tensorboard import SummaryWriter
+
 class OnPolicyAlgorithm():
     def __init__(self, 
                  env: Union[Monitor, VecEnv],
@@ -19,11 +19,9 @@ class OnPolicyAlgorithm():
                  gamma: float,
                  gae_lambda: float,
                  max_grad_norm: float,
-                 auxiliary_buffer_size: Optional[int],
-                 verbose: int,
                  log_dir: Optional[str],
                  log_interval: int,
-                 device: str,
+                 verbose: int,
                  seed: Optional[int],
                  ):
         
@@ -36,18 +34,10 @@ class OnPolicyAlgorithm():
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.max_grad_norm = max_grad_norm
-        self.auxiliary_buffer_size = auxiliary_buffer_size
-        self.verbose = verbose
         self.log_dir = log_dir
         self.log_interval = log_interval
+        self.verbose = verbose
         self.seed = seed
-
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
-        if self.verbose > 0:
-            print(f"Using the device: {self.device}")
         
         self._set_seed()
         
@@ -67,11 +57,13 @@ class OnPolicyAlgorithm():
         
         self.current_timesteps = 0
         
+        self.training_iterations = 0
+        
     def _setup_logger(self) -> None:
         if self.log_dir is None:
             self.logger = None
         else:
-            self.logger = Logger(self.log_dir)
+            self.logger = SummaryWriter(self.log_dir)
         
     def _set_seed(self) -> None:
         if self.seed is None:
@@ -96,16 +88,6 @@ class OnPolicyAlgorithm():
             if episode_info is not None:
                 self.episode_info_buffer.append(episode_info)
                 self.num_episodes += 1
-                
-                if self.logger is not None:
-                    if self.logger.log_count == 0:
-                        data = list(episode_info.keys())
-                        data = ["num_episode"] + data
-                        self.logger.write(data)
-                    data = list(episode_info.values())
-                    data = [self.num_episode] + data
-                    self.logger.write(data)
-                    self.logger.log_count += 1
                     
     def _rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
@@ -114,20 +96,25 @@ class OnPolicyAlgorithm():
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
     
     def learn(self) -> None:
-        training_iterations = 0
-        
         while self.current_timesteps < self.total_timesteps:
             
             self._rollout()
             
             self._train()
             
-            training_iterations += 1
+            self.training_iterations += 1
             
-            if training_iterations % self.log_interval == 0 and self.verbose > 0:
-                 print("episode", self.num_episodes,
-                       "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
-                       )
+            if self.training_iterations % self.log_interval == 0:
+                if self.logger:
+                    self.logger.add_scalar("episode", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]), self.num_episodes)
+                    self.logger.add_scalar("policy_loss", self.policy_loss, self.training_iterations)
+                    self.logger.add_scalar("value_loss", self.value_loss, self.training_iterations)
+                
+                if self.verbose > 0:
+                    print("episode", self.num_episodes,
+                          "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
+                         )
+                    
         if self.logger is not None:
             self.logger.close()
             
@@ -149,10 +136,9 @@ class OffPolicyAlgorithm():
                  batch_size: int,
                  target_update_interval: int,
                  gamma: float,
-                 verbose: int,
                  log_dir: Optional[str],
                  log_interval: int,
-                 device: str,
+                 verbose: int,
                  seed: Optional[int],
                  ):
         
@@ -166,17 +152,10 @@ class OffPolicyAlgorithm():
         self.batch_size=batch_size
         self.target_update_interval = target_update_interval
         self.gamma = gamma
-        self.verbose = verbose
         self.log_dir = log_dir
         self.log_interval = log_interval
+        self.verbose = verbose
         self.seed = seed
-        
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
-        if self.verbose > 0:
-            print(f"Using the device: {self.device}")
         
         self._set_seed()
 
@@ -202,7 +181,7 @@ class OffPolicyAlgorithm():
         if self.log_dir is None:
             self.logger = None
         else:
-            self.logger = Logger(self.log_dir)
+            self.logger = SummaryWriter(self.log_dir)
             
     def _set_seed(self) -> None:
         if self.seed is None:
@@ -229,16 +208,6 @@ class OffPolicyAlgorithm():
                 self.episode_info_buffer.append(episode_info)
                 self.num_episodes += 1
                 
-                if self.logger is not None:
-                    if self.logger.log_count == 0:
-                        data = list(episode_info.keys())
-                        data = ["num_episode"] + data
-                        self.logger.write(data)
-                    data = list(episode_info.values())
-                    data = [self.num_episode] + data
-                    self.logger.write(data)
-                    self.logger.log_count += 1
-    
     def _rollout(self) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
             
@@ -250,7 +219,7 @@ class OffPolicyAlgorithm():
             
             self._rollout()
             
-            if self.current_timesteps > 0 and self.current_timesteps > self.learning_start:
+            if self.current_timesteps > self.learning_start:
                 
                 for _ in range(self.gradient_steps):
                     
@@ -258,10 +227,16 @@ class OffPolicyAlgorithm():
             
                     self.training_iterations += 1
             
-            if self.training_iterations % self.log_interval == 0 and self.verbose > 0:
-                 print("episode", self.num_episodes,
-                       "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
-                       )
+            if self.training_iterations % self.log_interval == 0:
+                if self.logger:
+                    self.logger.add_scalar("episode", self.episode_reward_mean, self.num_episodes)
+                    self.logger.add_scalar("policy_loss", self.policy_loss, self.training_iterations())
+                    self.logger.add_scalar("value_loss", self.value_loss, self.training_iterations())
+                
+                if self.verbose > 0:
+                    print("episode", self.num_episodes,
+                          "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
+                         )
                  
         if self.logger is not None:
             self.logger.close()

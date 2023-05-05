@@ -8,11 +8,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
+import common.models as models
 from common.envs import Monitor, VecEnv
-from common.models import VPGActor, VCritic
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils.functionality import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
+from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
 
 class PPO(OnPolicyAlgorithm):
     def __init__(self, 
@@ -28,11 +28,9 @@ class PPO(OnPolicyAlgorithm):
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
                  max_grad_norm: Optional[float] = None,
-                 auxiliary_buffer_size: Optional[int] = None,
-                 verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 100,
-                 device: str = "auto",
+                 verbose: int = 1,
                  seed: Optional[int] = None,
                  ):
         
@@ -46,11 +44,9 @@ class PPO(OnPolicyAlgorithm):
               gamma,
               gae_lambda,
               max_grad_norm,
-              auxiliary_buffer_size,
-              verbose, 
               log_dir,
               log_interval,
-              device,
+              verbose, 
               seed,
             )
         
@@ -66,19 +62,15 @@ class PPO(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             self.num_actions = self.env.action_space.shape[0]
 
-        self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
+        self.policy_net = models.VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
 
-        self.value_net = VCritic(self.observation_dim, **self.critic_kwargs).to(self.device)
+        self.value_net = models.V(self.observation_dim, **self.critic_kwargs)
         
         if self.verbose > 0:
             print(self.policy_net)
             print(self.value_net)
         
-        self.buffer = RolloutBuffer(self.rollout_steps, self.device)
-        if self.auxiliary_buffer_size:
-            self.auxiliary_buffer = RolloutBuffer(self.auxiliary_buffer_size, self.device)
-        else:
-            self.auxiliary_buffer = None
+        self.buffer = RolloutBuffer(self.rollout_steps)
             
         self.obs = self.env.reset()
         
@@ -88,34 +80,36 @@ class PPO(OnPolicyAlgorithm):
         with torch.no_grad():
             for i in range(self.rollout_steps):
 
-                dists = self.policy_net(obs_to_tensor(self.obs).to(self.device))
+                dist = self.policy_net(obs_to_tensor(self.obs))
             
-                action = dists.sample().cpu().detach().numpy()
+                action = dist.sample().detach()
+                
+                log_prob = dist.log_prob(action).numpy()
+                
+                action = action.numpy()
 
                 clipped_action = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
 
                 next_obs, reward, done, info = self.env.step(clipped_action)
             
-                self.buffer.add((self.obs, action, reward, next_obs, done))
+                self.buffer.add((self.obs, action, reward, next_obs, done, log_prob))
             
                 self.obs = next_obs
             
                 self.current_timesteps += self.env.num_envs
             
                 self._update_episode_info(info)
-
-                if self.auxiliary_buffer is not None:
-                    self.auxiliary_buffer.add((self.obs, action, reward, next_obs, done))
                 
     def _train(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         for epoch in range(self.num_epochs):
-            obs, actions, rewards, next_obs, dones = self.buffer.get()
+            obs, actions, rewards, next_obs, dones, log_probs = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
             assert isinstance(rewards, torch.Tensor) and rewards.shape[1] == 1
             assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
+            assert isinstance(log_probs, torch.Tensor) and log_probs.shape[1] == self.env.action_space.shape[0]
             
             values = self.value_net(obs)
             
@@ -142,7 +136,6 @@ class PPO(OnPolicyAlgorithm):
                     last_value = self.value_net(next_obs[-1])
             
                 advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
-                advantages = advantages.to(self.device)
                 
                 target_values = advantages + values
                 
@@ -152,12 +145,14 @@ class PPO(OnPolicyAlgorithm):
             
             entropy = -dists.entropy().mean()
             
-            log_probs = dists.log_prob(actions)
-            old_log_probs = log_probs.detach()
+            old_log_probs = log_probs
             
+            log_probs = dists.log_prob(actions)
+
             ratio = torch.exp(log_probs - old_log_probs)
-             
+
             actor_loss1 = ratio * advantages
+
             actor_loss2 = torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
             actor_loss = -torch.min(actor_loss1, actor_loss2).mean() + self.ent_coef * entropy
             
@@ -195,9 +190,9 @@ class PPO(OnPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = models.VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.policy_net = self.policy_net
  
         if self.verbose >= 1:
             print("The ppo model has been loaded successfully")
@@ -213,9 +208,10 @@ if __name__ == "__main__":
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
-              num_epochs=1,
+              num_epochs=4,
+              max_grad_norm=0.5,
               log_dir=None,
-              seed=7,
+              seed=1,
              )
     
     ppo.learn()

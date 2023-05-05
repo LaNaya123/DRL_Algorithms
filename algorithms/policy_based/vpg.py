@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
 from common.envs import Monitor, VecEnv
-from common.models import VPGActor, VCritic
+import common.models as models
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
-from common.utils.functionality import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
+from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
 
 class VPG(OnPolicyAlgorithm):
     def __init__(self, 
@@ -25,11 +25,9 @@ class VPG(OnPolicyAlgorithm):
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
                  max_grad_norm: Optional[float] = 0.5,
-                 auxiliary_buffer_size: Optional[int] = None,
-                 verbose: int = 1,
                  log_dir: Optional[str] = None,
                  log_interval: int = 100,
-                 device: str = "auto",
+                 verbose: int = 1,
                  seed: Optional[int] = None,
                  ):
         
@@ -42,12 +40,10 @@ class VPG(OnPolicyAlgorithm):
               td_method,
               gamma,
               gae_lambda,
-              max_grad_norm,
-              auxiliary_buffer_size,
-              verbose, 
+              max_grad_norm, 
               log_dir,
               log_interval,
-              device,
+              verbose,
               seed,
             )
     
@@ -59,15 +55,15 @@ class VPG(OnPolicyAlgorithm):
         elif isinstance(self.env.action_space, spaces.Box):
             self.num_actions = self.env.action_space.shape[0]
 
-        self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs).to(self.device)
+        self.policy_net = models.VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
 
-        self.value_net = VCritic(self.observation_dim, **self.critic_kwargs).to(self.device)
+        self.value_net = models.V(self.observation_dim, **self.critic_kwargs)
         
         if self.verbose > 0:
             print(self.policy_net)
             print(self.value_net)
         
-        self.buffer = RolloutBuffer(self.rollout_steps, self.device)
+        self.buffer = RolloutBuffer(self.rollout_steps)
         
         self.obs = self.env.reset()
         
@@ -76,15 +72,19 @@ class VPG(OnPolicyAlgorithm):
         
         with torch.no_grad():
             for i in range(self.rollout_steps):
-                dists = self.policy_net(obs_to_tensor(self.obs).to(self.device))
+                dist = self.policy_net(obs_to_tensor(self.obs))
             
-                action = dists.sample().cpu().detach().numpy()
+                action = dist.sample().detach()
+                
+                log_prob = dist.log_prob(action).numpy()
+                
+                action = action.numpy()
 
                 action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
 
                 next_obs, reward, done, info = self.env.step(action_clipped)
             
-                self.buffer.add((self.obs, action, reward, next_obs, done))
+                self.buffer.add((self.obs, action, reward, next_obs, done, log_prob))
             
                 self.obs = next_obs
             
@@ -126,7 +126,6 @@ class VPG(OnPolicyAlgorithm):
                 last_value = self.value_net(next_obs[-1])
             
             advantages = compute_gae_advantage(rewards, values, dones, last_value, gamma=self.gamma, gae_lambda=self.gae_lambda)
-            advantages = advantages.to(self.device)
             
             target_values = advantages + values
                 
@@ -170,7 +169,7 @@ class VPG(OnPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = VPGActor(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = models.VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
             self.policy_net = self.policy_net.to(self.device)
  
@@ -178,6 +177,7 @@ class VPG(OnPolicyAlgorithm):
             print("The vpg model has been loaded successfully")
             
         return self.policy_net
+    
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
