@@ -6,7 +6,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.distributions as distributions
 import numpy as np
-import random
 from common.optimizers import AddBias, KFACOptimizer
 
 class ACKTR(nn.Module):
@@ -24,7 +23,7 @@ class ACKTR(nn.Module):
         self.num_actions = num_actions
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
-
+        
         self.model = nn.Sequential(
             nn.Linear(observation_dim, hidden_size),
             activation_fn(),
@@ -39,7 +38,7 @@ class ACKTR(nn.Module):
     
     def forward(self, x: torch.Tensor) -> distributions.Normal:
         means = self.model(x)
-        
+
         zeros = torch.zeros(means.size())
         logstds = self.logstds(zeros)
         stds = torch.clamp(logstds.exp(), 7e-4, 50)
@@ -55,15 +54,14 @@ class ACKTR(nn.Module):
             stds = torch.clamp(logstds.exp(), 7e-4, 50)
         
         normal_dist = distributions.Normal(means, stds)
-        a = normal_dist.sample().cpu().detach().numpy()
-        if len(a.shape) == 2:
-            a = a.squeeze(axis=0)
-        return a
+        action = normal_dist.sample().detach().numpy()
+        return action
     
 class C51(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
                  num_actions: int, 
+                 v_range: np.ndarray,
                  num_atoms: int = 51, 
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh,
@@ -75,6 +73,7 @@ class C51(nn.Module):
         
         self.observation_dim = observation_dim
         self.num_actions = num_actions
+        self.v_range = v_range
         self.num_atoms = num_atoms
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
@@ -96,10 +95,11 @@ class C51(nn.Module):
     
     def predict(self, x: torch.Tensor) -> np.ndarray:
         with torch.no_grad():
-            q = self.model(x)
-            
-        a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
-        return a
+            v_prob = self.model(x)
+            v_prob = F.softmax(v_prob.view(-1, self.num_actions, self.num_atoms), dim=2)
+            q = torch.sum(v_prob * self.v_range.view(1, 1, -1), dim=2)
+            action = q.argmax(dim=1, keepdim=True).numpy()
+        return action
             
 class DQN(nn.Module):
     def __init__(self, 
@@ -135,8 +135,8 @@ class DQN(nn.Module):
         with torch.no_grad():
             q = self.model(x)
             
-        a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
-        return a
+            action = q.argmax(dim=-1, keepdim=True).detach().numpy()
+        return action
     
 class DDPG(nn.Module):
     def __init__(self, 
@@ -273,17 +273,30 @@ class VPG(nn.Module):
         
             return distributions.Normal(means, stds) 
         
-        else:
+        elif self.action_space == "Discrete":
             probs = self.model(x)
             
             return distributions.Categorical(probs)
         
     def predict(self, x: torch.Tensor) -> np.ndarray:
-        means = self.model(x)
-        stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
-        dists = torch.distributions.Normal(means, stds) 
-        a = dists.sample().cpu().detach().numpy()
-        return a
+        with torch.no_grad():
+            if self.action_space == "Box":
+                mean = self.model(x)
+            
+                std = torch.clamp(self.logstds.exp(), 7e-4, 50)
+            
+                dist = distributions.Normal(mean, std) 
+            
+                action = dist.sample().cpu().detach().numpy()
+        
+            elif self.action_space == "Discrete":
+                prob = self.model(x)
+            
+                dist = distributions.Categorical(prob)
+            
+                action = dist.sample().item()
+        
+        return action
       
 class Q1(nn.Module):
     def __init__(self, 

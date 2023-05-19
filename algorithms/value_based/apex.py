@@ -8,6 +8,7 @@ import gym
 import random
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from collections import deque
 import common.models as models
@@ -32,15 +33,14 @@ class Actor():
                  log_interval,
                  verbose,
                  ):
-        
         self.actor_id = actor_id
         self.observation_dim = observation_dim
         self.num_actions = num_actions
         self.qnet_kwargs = qnet_kwargs if qnet_kwargs else {}
 
-        self.policy_net = models.DQN(observation_dim, num_actions, **qnet_kwargs)
-        self.target_policy_net = models.DQN(observation_dim, num_actions, **qnet_kwargs)
-        self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+        self.q_net = models.DQN(observation_dim, num_actions, **qnet_kwargs)
+        self.target_q_net = models.DQN(observation_dim, num_actions, **qnet_kwargs)
+        self.target_q_net.load_state_dict(self.q_net.state_dict())
         
         self.buffer = buffer
         
@@ -76,7 +76,7 @@ class Actor():
     def _update_params(self):
         new_params = ray.get(self.params_server._get_params.remote())
         
-        for param, new_param in zip(self.policy_net.parameters(), new_params):
+        for param, new_param in zip(self.q_net.parameters(), new_params):
             param.data.copy_(new_param)
             
     def _update_episode_info(self, infos) -> None:
@@ -91,37 +91,38 @@ class Actor():
     def _run(self):
         update_steps = ray.get(self.params_server._get_update_steps.remote())
         
-        while update_steps < self.update_steps:
-            q = self.policy_net(obs_to_tensor(self.obs))
+        with torch.no_grad():
+            while update_steps < self.update_steps:
+                q = self.q_net(obs_to_tensor(self.obs))
             
-            coin = random.random()
-            if coin < self.current_eps:
-                action = [random.randint(0, self.env.action_space.n - 1) for _ in range(self.env.num_envs)]
-                action = np.asarray(action)[:, np.newaxis]
-            else:
-                action = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
+                coin = random.random()
+                if coin < self.current_eps:
+                    action = [random.randint(0, self.env.action_space.n - 1) for _ in range(self.env.num_envs)]
+                    action = np.asarray(action)[:, np.newaxis]
+                else:
+                    action = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
 
-            next_obs, reward, done, info = self.env.step(action)
+                next_obs, reward, done, info = self.env.step(action)
 
-            self.buffer._add.remote((self.obs, action, reward, next_obs, done))
+                self.buffer._add.remote((self.obs, action, reward, next_obs, done))
 
-            self.obs = next_obs
+                self.obs = next_obs
             
-            self.params_server._update_timesteps.remote(self.env.num_envs)
+                self.params_server._update_timesteps.remote(self.env.num_envs)
             
-            self._update_episode_info(info)
+                self._update_episode_info(info)
             
-            self._update_exploration_eps()
+                self._update_exploration_eps()
             
-            update_steps = ray.get(self.params_server._get_update_steps.remote())
-            if update_steps % self.actor_update_interval == 0:
-                self._update_params()  
-            if update_steps % self.log_interval == 0:
-                if self.verbose > 0:
-                    print("actor_id", self.actor_id,
-                          "episode", self.num_episodes,
-                          "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
-                         )
+                update_steps = ray.get(self.params_server._get_update_steps.remote())
+                if update_steps % self.actor_update_interval == 0:
+                    self._update_params()  
+                if update_steps % self.log_interval == 0:
+                    if self.verbose >= 1:
+                        print("actor_id", self.actor_id,
+                              "episode", self.num_episodes,
+                              "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
+                             )
 @ray.remote
 class Learner():
     def __init__(self, 
@@ -141,15 +142,15 @@ class Learner():
         self.num_actions = num_actions
         self.qnet_kwargs = qnet_kwargs if qnet_kwargs else {}
         
-        self.policy_net = models.DQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
-        self.target_policy_net = models.DQN(observation_dim, num_actions, **self.qnet_kwargs)
-        self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+        self.q_net = models.DQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+        self.target_q_net = models.DQN(observation_dim, num_actions, **self.qnet_kwargs)
+        self.target_q_net.load_state_dict(self.q_net.state_dict())
         
         self.buffer = buffer
         
         self.params_server = params_server
         
-        self.params_list = list(self.policy_net.state_dict())
+        self.params_list = list(self.q_net.state_dict())
         
         self.batch_size = batch_size
         
@@ -177,20 +178,20 @@ class Learner():
                 assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
                 assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-                q_next = self.target_policy_net(next_obs)
+                q_next = self.target_q_net(next_obs)
                 q_next = q_next.max(dim=1, keepdim=True)[0]
             
                 q_target = rewards + self.gamma * (1 - dones) * q_next
             
-                q_values = self.policy_net(obs)
+                q_values = self.q_net(obs)
             
                 q_a = q_values.gather(1, actions)
 
                 loss = F.smooth_l1_loss(q_a, q_target)
 
-                self.policy_net.optimizer.zero_grad()
+                self.q_net.optimizer.zero_grad()
                 loss.backward()
-                self.policy_net.optimizer.step()
+                self.q_net.optimizer.step()
             
                 self._update_params_server()
             
@@ -198,17 +199,20 @@ class Learner():
 
                 if update_steps % self.target_update_interval == 0:
 
-                    self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+                    self.target_q_net.load_state_dict(self.q_net.state_dict())
             
-    def _update_params_server(self):
+    def _update_params_server(self) -> None:
         params = []
         
-        params_state_dict = self.policy_net.state_dict()
+        params_state_dict = self.q_net.state_dict()
         
         for param in self.params_list:
             params.append(params_state_dict[param])
             
         self.params_server._update_params.remote(params)
+        
+    def _get_qnet(self):
+        return self.q_net
         
 @ray.remote 
 class ParameterServer():
@@ -395,16 +399,39 @@ class APEX():
     def learn(self):
         procs = self.actors + [self.learner]
         
-        proc_ids = [proc._run.remote() for proc in procs]
+        proc_refs = [proc._run.remote() for proc in procs]
         
-        ray.get(proc_ids)
+        ready_refs, _ = ray.wait(proc_refs, num_returns=len(proc_refs))
+        
+    def save(self, path: str) -> None:
+        q_net = ray.get(self.learner._get_qnet.remote())
+        state_dict = q_net.state_dict()
+        
+        with open(path, "wb") as f:
+            torch.save(state_dict, f)
+        
+        if self.verbose >= 1:
+            print("The apex model has been saved successfully")
+    
+    def load(self, path: str) -> nn.Module:
+        with open(path, "rb") as f:
+            state_dict = torch.load(f)
+            
+            self.q_net = models.DQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+            self.q_net.load_state_dict(state_dict)
+            self.q_net = self.q_net
+ 
+        if self.verbose >= 1:
+            print("The apex model has been loaded successfully")
+            
+        return self.q_net
         
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     env = Monitor(env)
 
     apex = APEX(env, 
-                update_steps=10000,
+                update_steps=1000,
                 gradient_steps=1,
                 n_steps=1,
                 num_actors=4,
@@ -418,3 +445,6 @@ if __name__ == "__main__":
                 seed=7,)
     
     apex.learn()
+    apex.save("./model.ckpt")
+    apex = apex.load("./model.ckpt")    
+    print(evaluate_policy(apex, env))

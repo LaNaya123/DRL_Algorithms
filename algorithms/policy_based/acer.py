@@ -7,7 +7,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from common.envs import Monitor, VecEnv
+from common.envs import Monitor
 from common.policies import OffPolicyAlgorithm
 from common.models import VPG, Q2
 from common.utils import Mish, obs_to_tensor, evaluate_policy
@@ -15,7 +15,7 @@ from common.utils import Mish, obs_to_tensor, evaluate_policy
 class ACER(OffPolicyAlgorithm):
     def __init__(
                  self, 
-                 env: Union[Monitor, VecEnv], 
+                 env: Monitor, 
                  rollout_steps: int = 16,
                  total_timesteps: int = 1e6, 
                  gradient_steps: int = 4,
@@ -76,25 +76,26 @@ class ACER(OffPolicyAlgorithm):
     def _rollout(self) -> None:
         self.trajectory = []
         
-        for i in range(self.rollout_steps):
-            dist = self.policy_net(obs_to_tensor(self.obs))
-    
-            action = dist.sample().item()
+        with torch.no_grad():
+            for i in range(self.rollout_steps):
+                dist = self.policy_net(obs_to_tensor(self.obs))
+                
+                prob = dist.probs.detach().numpy()
+                
+                action = dist.sample().item()
             
-            prob = dist.probs.detach().numpy()
+                next_obs, reward, done, info = self.env.step(action)
             
-            next_obs, reward, done, info = self.env.step(action)
+                self.trajectory.append((self.obs, action, reward, next_obs, done, prob))
+                
+                self.obs = next_obs
             
-            self.trajectory.append((self.obs, action, reward, next_obs, done, prob))
+                self.current_timesteps += self.env.num_envs
             
-            self.obs = next_obs
+                self._update_episode_info(info)
             
-            self.current_timesteps += self.env.num_envs
-            
-            self._update_episode_info(info)
-            
-            if done:
-                break
+                if done:
+                    break
             
         self.buffer.append(self.trajectory)
         
@@ -168,7 +169,7 @@ class ACER(OffPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = VPG(self.observation_dim, self.num_actions, action_space="Discrete", **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
             self.policy_net = self.policy_net
  
@@ -178,11 +179,12 @@ class ACER(OffPolicyAlgorithm):
         return self.policy_net
             
 if __name__ == "__main__":
-    env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v0")
     env = Monitor(env)
+    
     acer = ACER(env, 
-              rollout_steps=32, 
-              total_timesteps=1e5,
+              rollout_steps=8, 
+              total_timesteps=3e4,
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               log_dir=None,
@@ -190,4 +192,6 @@ if __name__ == "__main__":
              )
     
     acer.learn()
-    
+    acer.save("./model.pkl")
+    acer = acer.load("./model.pkl")
+    print(evaluate_policy(acer, env, num_eval_episodes=2))

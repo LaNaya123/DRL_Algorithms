@@ -59,12 +59,12 @@ class DuelingDQN(DQN):
         
         self.num_actions = self.env.action_space.n
         
-        self.policy_net = models.DuelingDQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
-        self.target_policy_net = models.DuelingDQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
-        self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+        self.q_net = models.DuelingDQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+        self.target_q_net = models.DuelingDQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+        self.target_q_net.load_state_dict(self.q_net.state_dict())
             
         if self.verbose > 0:
-            print(self.policy_net) 
+            print(self.q_net) 
 
         self.buffer = ReplayBuffer(self.buffer_size, self.n_steps)
         
@@ -81,28 +81,28 @@ class DuelingDQN(DQN):
         assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
         assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-        q_next = self.policy_net(next_obs)        
+        q_next = self.q_net(next_obs)        
         next_acts = q_next.max(dim=1, keepdim=True)[1]
-        q_next = self.target_policy_net(next_obs)
+        q_next = self.target_q_net(next_obs)
         q_next = q_next.gather(dim=1, index=next_acts)
         
         q_target = rewards + self.gamma * (1 - dones) * q_next
             
-        q_values = self.policy_net(obs)
+        q_values = self.q_net(obs)
             
         q_a = q_values.gather(1, actions)
 
         loss = F.smooth_l1_loss(q_a, q_target)
 
-        self.policy_net.optimizer.zero_grad()
+        self.q_net.optimizer.zero_grad()
         loss.backward()
-        self.policy_net.optimizer.step()
+        self.q_net.optimizer.step()
 
         if self.training_iterations % self.target_update_interval == 0:
-            self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+            self.target_q_net.load_state_dict(self.q_net.state_dict())
     
     def save(self, path: str) -> None:
-        state_dict = self.policy_net.state_dict()
+        state_dict = self.q_net.state_dict()
         
         with open(path, "wb") as f:
             torch.save(state_dict, f)
@@ -114,22 +114,22 @@ class DuelingDQN(DQN):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = models.DuelingDQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
-            self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.q_net = models.DuelingDQN(self.observation_dim, self.num_actions, **self.qnet_kwargs)
+            self.q_net.load_state_dict(state_dict)
  
         if self.verbose >= 1:
             print("The dqn model has been loaded successfully")
             
-        return self.policy_net
+        return self.q_net
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
     env = Monitor(env)
-    #env = VecEnv(env, num_envs=4)
+    env = VecEnv(env, num_envs=1)
+    
     dueling_dqn = DuelingDQN(env, 
               rollout_steps=8,
-              total_timesteps=3e4,
+              total_timesteps=1e2,
               gradient_steps=1,
               n_steps=1,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
@@ -141,8 +141,6 @@ if __name__ == "__main__":
               seed=7,)
     
     dueling_dqn.learn()
-    
     dueling_dqn.save("./model.ckpt")
-    model = dueling_dqn.load("./model.ckpt")
-    
-    print(evaluate_policy(dueling_dqn.policy_net, env))
+    dueling_dqn = dueling_dqn.load("./model.ckpt")
+    print(evaluate_policy(dueling_dqn, env))

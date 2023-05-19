@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from dqn import DQN
-from common.envs import Monitor, VecEnv, CliprewardEnv
+from common.envs import Monitor, VecEnv
 import common.models as models
 from common.buffers import ReplayBuffer
 from common.utils import Mish, obs_to_tensor, evaluate_policy
@@ -71,12 +71,12 @@ class C51(DQN):
 
         self.num_actions = self.env.action_space.n
         
-        self.policy_net = models.C51(self.observation_dim, self.num_actions, self.num_atoms, **self.qnet_kwargs)
-        self.target_policy_net = models.C51(self.observation_dim, self.num_actions, self.num_atoms, **self.qnet_kwargs)
-        self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+        self.q_net = models.C51(self.observation_dim, self.num_actions, self.v_range, self.num_atoms, **self.qnet_kwargs)
+        self.target_q_net = models.C51(self.observation_dim, self.num_actions, self.v_range, self.num_atoms, **self.qnet_kwargs)
+        self.target_q_net.load_state_dict(self.q_net.state_dict())
             
         if self.verbose > 0:
-            print(self.policy_net) 
+            print(self.q_net) 
 
         self.buffer = ReplayBuffer(self.buffer_size, self.n_steps)
         
@@ -84,15 +84,16 @@ class C51(DQN):
         
     def _rollout(self) -> None:
         for i in range(self.rollout_steps):
-            v_dist = self.policy_net(obs_to_tensor(self.obs))
-            
+            v_dist = self.q_net(obs_to_tensor(self.obs))
+
             coin = random.random()
             if coin < self.current_eps:
                 action = [random.randint(0, self.env.action_space.n - 1) for _ in range(self.env.num_envs)]
                 action = np.asarray(action)[:, np.newaxis]
             else:
                 q = torch.sum(v_dist * self.v_range.view(1, 1, -1), dim=2)
-                action = q.argmax(dim=1).detach().numpy()
+                action = q.argmax(dim=1, keepdim=True).detach().numpy()
+                #print(action.shape)
 
             next_obs, reward, done, info = self.env.step(action)
 
@@ -117,7 +118,7 @@ class C51(DQN):
         assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
         assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-        v_probs_next = self.target_policy_net(next_obs)
+        v_probs_next = self.target_q_net(next_obs)
         
         q_next = torch.sum(v_probs_next * self.v_range.view(1, 1, -1), dim=2)
         
@@ -141,48 +142,48 @@ class C51(DQN):
                 v_probs_target[i, upper_bound[i, j]] += v_probs_next[i][j] * (v_dist_pos[i][j] - lower_bound[i][j])
         
             
-        v_probs_eval = self.policy_net(obs)
+        v_probs_eval = self.q_net(obs)
         v_probs_eval = torch.stack([v_probs_eval[i].index_select(0, actions[i][0]) for i in range(self.batch_size)]).squeeze(1)
 
         loss = torch.mean(v_probs_target * (-torch.log(v_probs_eval + 1e-8)))
 
-        self.policy_net.optimizer.zero_grad()
+        self.q_net.optimizer.zero_grad()
         loss.backward()
-        self.policy_net.optimizer.step()
+        self.q_net.optimizer.step()
 
         if self.training_iterations % self.target_update_interval == 0:
-            self.target_policy_net.load_state_dict(self.policy_net.state_dict())
+            self.target_q_net.load_state_dict(self.q_net.state_dict())
     
     def save(self, path: str) -> None:
-        state_dict = self.policy_net.state_dict()
+        state_dict = self.q_net.state_dict()
         
         with open(path, "wb") as f:
             torch.save(state_dict, f)
         
         if self.verbose >= 1:
-            print("The dqn model has been saved successfully")
+            print("The c51 model has been saved successfully")
     
     def load(self, path: str) -> nn.Module:
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = C51(self.observation_dim, self.num_actions, **self.qnet_kwargs)
-            self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.q_net = models.C51(self.observation_dim, self.num_actions, self.v_range, self.num_atoms, **self.qnet_kwargs)
+            self.q_net.load_state_dict(state_dict)
+            self.q_net = self.q_net
  
         if self.verbose >= 1:
-            print("The dqn model has been loaded successfully")
+            print("The c51 model has been loaded successfully")
             
-        return self.policy_net
+        return self.q_net
         
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
-    env = CliprewardEnv(env)
     env = Monitor(env)
-    #env = VecEnv(env, num_envs=4)
-    dqn = C51(env, 
+    env = VecEnv(env, num_envs=4)
+    
+    c51 = C51(env, 
               rollout_steps=8,
-              total_timesteps=3e4,
+              total_timesteps=1e2,
               gradient_steps=1,
               n_steps=1,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
@@ -193,9 +194,7 @@ if __name__ == "__main__":
               log_interval=20,
               seed=7,)
     
-    dqn.learn()
-    
-    dqn.save("./model.ckpt")
-    model = dqn.load("./model.ckpt")
-    
-    print(evaluate_policy(dqn.policy_net, env))
+    c51.learn()
+    c51.save("./model.ckpt")
+    c51 = c51.load("./model.ckpt")    
+    print(evaluate_policy(c51, env))

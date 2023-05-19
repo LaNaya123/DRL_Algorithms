@@ -202,9 +202,11 @@ class PPO(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
+    env = VecEnv(env, num_envs=1)
+    
     ppo = PPO(env, 
               rollout_steps=8, 
-              total_timesteps=1e5, 
+              total_timesteps=1e2, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
@@ -215,8 +217,6 @@ if __name__ == "__main__":
              )
     
     ppo.learn()
-    
     ppo.save("./model.ckpt")
     model = ppo.load("./model.ckpt")
-    
     print(evaluate_policy(ppo.policy_net, env))

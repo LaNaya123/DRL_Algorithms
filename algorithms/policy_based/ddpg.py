@@ -145,9 +145,9 @@ class DDPG(OffPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = models.DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.policy_net = self.policy_net
  
         if self.verbose >= 1:
             print("The ddpg model has been loaded successfully")
@@ -158,10 +158,12 @@ class DDPG(OffPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    #env = VecEnv(env, num_envs=4)
+    env = VecEnv(env, num_envs=1)
+    
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
+    
     ddpg = DDPG(env, 
-              total_timesteps=1e4, 
+              total_timesteps=1e2, 
               gradient_steps=4,
               rollout_steps=8, 
               n_steps=1,
@@ -176,9 +178,7 @@ if __name__ == "__main__":
               critic_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}},
               ou_noise=ou_noise)
     
-    ddpg.learn()
-    
+    ddpg.learn()    
     ddpg.save("./model.ckpt")
-    model = ddpg.load("./model.ckpt")
-    
-    print(evaluate_policy(ddpg.policy_net, env))
+    ddpg = ddpg.load("./model.ckpt")
+    print(evaluate_policy(ddpg, env))

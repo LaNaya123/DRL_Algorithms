@@ -59,14 +59,6 @@ def compute_td_target(rewards: torch.Tensor,
         target_values.append(td_target)
     return torch.FloatTensor(target_values[::-1]).view(-1, 1)
 
-def compute_rtg(rewards: np.ndarray, gamma: float = 0.99) -> np.ndarray:
-    rtg = np.zeros_like(rewards)
-    rtg[-1] = rewards[-1]
-    
-    for i in reversed(range(len(rewards)-1)):
-        rtg[i] = rewards[i] + gamma * rtg[i+1]
-    return rtg
-
 def evaluate_policy(model: nn.Module, env: Union[Monitor, VecEnv], num_eval_episodes: int = 10) -> Tuple[float, float, float, float]:
     num_envs = env.num_envs
 
@@ -82,9 +74,6 @@ def evaluate_policy(model: nn.Module, env: Union[Monitor, VecEnv], num_eval_epis
     observations = env.reset()
     
     while (episode_counts < episode_counts_target).any():
-        if isinstance(observations, int):
-            observations = [observations]
-
         actions = model.predict(obs_to_tensor(observations))
         if isinstance(env, spaces.Box):
             actions = np.clip(actions, env.action_space.low.min(), env.action_space.high.max())

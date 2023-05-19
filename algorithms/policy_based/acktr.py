@@ -88,18 +88,22 @@ class ACKTR(OnPolicyAlgorithm):
         with torch.no_grad():
             
             for i in range(self.rollout_steps):
-                dists = self.policy_net(obs_to_tensor(self.obs))
+                dist = self.policy_net(obs_to_tensor(self.obs))
                 
-                action = dists.sample().detach().numpy()
+                action = dist.sample().detach()
                 
+                log_prob = dist.log_prob(action).numpy()
+                
+                action = action.numpy()
+
                 if not self.env.is_vec:
                     action = action.squeeze(axis=0)
-
-                action_clipped = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
+                    
+                clipped_action = np.clip(action, self.env.action_space.low.min(), self.env.action_space.high.max())
             
-                next_obs, reward, done, info = self.env.step(action_clipped)
+                next_obs, reward, done, info = self.env.step(clipped_action)
             
-                self.buffer.add((self.obs, action, reward, next_obs, done))
+                self.buffer.add((self.obs, action, reward, next_obs, done, log_prob))
             
                 self.obs = next_obs
             
@@ -108,7 +112,7 @@ class ACKTR(OnPolicyAlgorithm):
                 self._update_episode_info(info)
         
     def _train(self) -> None:
-            obs, actions, rewards, next_obs, dones = self.buffer.get()
+            obs, actions, rewards, next_obs, dones, log_probs = self.buffer.get()
             
             assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
             assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
@@ -209,7 +213,7 @@ class ACKTR(OnPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = ACKTR(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = models.ACKTR(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
             self.policy_net = self.policy_net
  
@@ -221,10 +225,11 @@ class ACKTR(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    #env = VecEnv(env, num_envs=4)
+    env = VecEnv(env, num_envs=1)
+    
     acktr = ACKTR(env, 
               rollout_steps=8, 
-              total_timesteps=3e6,
+              total_timesteps=1e2,
               critic_kwargs={"activation_fn": nn.ReLU},
               max_grad_norm=0.5,
               td_method="td_lambda",
@@ -233,3 +238,6 @@ if __name__ == "__main__":
              )
     
     acktr.learn()
+    acktr.save("./model.pkl")
+    acktr = acktr.load("./model.pkl")
+    print(evaluate_policy(acktr, env, num_eval_episodes=2))

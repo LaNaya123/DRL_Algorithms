@@ -93,7 +93,7 @@ class VPG(OnPolicyAlgorithm):
                 self._update_episode_info(info)
             
     def _train(self) -> None:
-        obs, actions, rewards, next_obs, dones = self.buffer.get()
+        obs, actions, rewards, next_obs, dones, log_probs = self.buffer.get()
             
         assert isinstance(obs, torch.Tensor) and obs.shape[1] == self.env.observation_space.shape[0]
         assert isinstance(actions, torch.Tensor) and actions.shape[1] == self.env.action_space.shape[0]
@@ -171,7 +171,7 @@ class VPG(OnPolicyAlgorithm):
             
             self.policy_net = models.VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.policy_net = self.policy_net
  
         if self.verbose >= 1:
             print("The vpg model has been loaded successfully")
@@ -181,9 +181,11 @@ class VPG(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
+    env = VecEnv(env, num_envs=1)
+    
     vpg = VPG(env, 
               rollout_steps=8, 
-              total_timesteps=1e5, 
+              total_timesteps=1e4, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
@@ -193,8 +195,6 @@ if __name__ == "__main__":
              )
     
     vpg.learn()
-    
     vpg.save("./model.ckpt")
-    model = vpg.load("./model.ckpt")
-    
-    print(evaluate_policy(vpg.policy_net, env))
+    vpg = vpg.load("./model.ckpt")
+    print(evaluate_policy(vpg, env))

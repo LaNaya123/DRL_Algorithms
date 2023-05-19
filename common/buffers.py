@@ -78,7 +78,7 @@ class ReplayBuffer():
             r, next_s, d = transition[-3:]
 
             reward = r + self.gamma * reward * (1 - d)
-            
+
             next_state, done = (next_s, d) if d else (next_state, done)
 
         return (state, action, reward, next_state, done)
@@ -105,9 +105,7 @@ class ReplayBuffer():
             if len(ob.shape) == 1:
                 ob = ob[np.newaxis, :]
                 
-            if isinstance(action, int):
-                action = [action]
-            elif len(action.shape) == 1:
+            if len(action.shape) == 1:
                 action = action[np.newaxis, :]
              
             if not isinstance(reward, np.ndarray):

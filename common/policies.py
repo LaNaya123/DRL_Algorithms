@@ -5,7 +5,7 @@ import random
 import torch
 from collections import deque
 from common.envs import Monitor, VecEnv
-from common.utils import safe_mean, obs_to_tensor
+from common.utils import safe_mean
 from torch.utils.tensorboard import SummaryWriter
 
 class OnPolicyAlgorithm():
@@ -233,7 +233,7 @@ class OffPolicyAlgorithm():
                     self.logger.add_scalar("policy_loss", self.policy_loss, self.training_iterations())
                     self.logger.add_scalar("value_loss", self.value_loss, self.training_iterations())
                 
-                if self.verbose > 0:
+                if self.verbose >= 1:
                     print("episode", self.num_episodes,
                           "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                          )

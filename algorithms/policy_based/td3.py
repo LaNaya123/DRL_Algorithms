@@ -138,9 +138,9 @@ class TD3(DDPG):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
+            self.policy_net = models.DDPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
-            self.policy_net = self.policy_net.to(self.device)
+            self.policy_net = self.policy_net
  
         if self.verbose >= 1:
             print("The td3 model has been loaded successfully")
@@ -151,10 +151,12 @@ class TD3(DDPG):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    #env = VecEnv(env, num_envs=4)
+    env = VecEnv(env, num_envs=1)
+    
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
+    
     td3 = TD3(env, 
-              total_timesteps=1e6, 
+              total_timesteps=1e2, 
               gradient_steps=4,
               rollout_steps=8, 
               n_steps=1,
@@ -171,3 +173,6 @@ if __name__ == "__main__":
               ou_noise=ou_noise)
     
     td3.learn()
+    td3.save("./model.ckpt")
+    td3 = td3.load("./model.ckpt")
+    print(evaluate_policy(td3, env))
