@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from typing import Any, Union, Optional, Type, List, Dict, Tuple
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.distributions as distributions
 import numpy as np
+from typing import Any, Type, Dict
 from common.optimizers import AddBias, KFACOptimizer
 
 class ACKTR(nn.Module):
@@ -221,6 +221,48 @@ class DuelingDQN(nn.Module):
         q = v + adv - adv.mean()
         a = q.argmax(dim=-1, keepdim=True).cpu().detach().numpy()
         return a 
+
+class QRDQN(nn.Module):
+    def __init__(self, 
+                 observation_dim: int, 
+                 num_actions: int, 
+                 num_quantiles: int = 10, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
+                ):
+        
+        super(QRDQN, self).__init__()
+        
+        self.observation_dim = observation_dim
+        self.num_actions = num_actions
+        self.num_quantiles = num_quantiles
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        
+        self.model = nn.Sequential(
+            nn.Linear(observation_dim, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, num_actions * self.num_quantiles),
+            )
+        
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        quantiles = self.model(x)
+        quantiles = quantiles.view(-1, self.num_actions, self.num_quantiles)
+        return quantiles
+    
+    def predict(self, x: torch.Tensor) -> np.ndarray:
+        with torch.no_grad():
+            quantiles = self.model(x)
+            quantiles = quantiles.view(-1, self.num_actions, self.num_quantiles)
+            q = quantiles.mean(dim=2)
+            action = q.argmax(dim=1, keepdim=True).numpy()
+        return action
     
 class VPG(nn.Module):
     def __init__(self, 
@@ -230,7 +272,6 @@ class VPG(nn.Module):
                  activation_fn: Type[nn.Module] = nn.Tanh,
                  optimizer: Type[optim.Optimizer] = optim.Adam,
                  optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4},
-                 action_space="Box"
                 ):
         
         super(VPG, self).__init__()
@@ -239,63 +280,37 @@ class VPG(nn.Module):
         self.num_action = num_actions
         self.hidden_size = hidden_size
         self.activation_fn = activation_fn
-        self.action_space = action_space
         
-        if self.action_space == "Box":
-            self.model = nn.Sequential(
-                nn.Linear(observation_dim, hidden_size),
-                activation_fn(),
-                nn.Linear(hidden_size, hidden_size),
-                activation_fn(),
-                nn.Linear(hidden_size, num_actions),
-                )
+        self.model = nn.Sequential(
+            nn.Linear(observation_dim, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, num_actions),
+            )
             
-            logstds_param = nn.Parameter(torch.full((num_actions,), 0.1))
-            self.register_parameter("logstds", logstds_param)
-        
-        elif self.action_space == "Discrete":
-            self.model = nn.Sequential(
-                nn.Linear(observation_dim, hidden_size),
-                activation_fn(),
-                nn.Linear(hidden_size, hidden_size),
-                activation_fn(),
-                nn.Linear(hidden_size, num_actions),
-                nn.Softmax(dim=-1)
-                )
-        
+        logstds_param = nn.Parameter(torch.full((num_actions,), 0.1))
+        self.register_parameter("logstds", logstds_param)
+          
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.action_space == "Box":
-            means = self.model(x)
+        means = self.model(x)
          
-            stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
+        stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
         
-            return distributions.Normal(means, stds) 
-        
-        elif self.action_space == "Discrete":
-            probs = self.model(x)
-            
-            return distributions.Categorical(probs)
-        
+        return distributions.Normal(means, stds) 
+           
     def predict(self, x: torch.Tensor) -> np.ndarray:
         with torch.no_grad():
-            if self.action_space == "Box":
-                mean = self.model(x)
+            mean = self.model(x)
             
-                std = torch.clamp(self.logstds.exp(), 7e-4, 50)
+            std = torch.clamp(self.logstds.exp(), 7e-4, 50)
             
-                dist = distributions.Normal(mean, std) 
+            dist = distributions.Normal(mean, std) 
             
-                action = dist.sample().cpu().detach().numpy()
-        
-            elif self.action_space == "Discrete":
-                prob = self.model(x)
-            
-                dist = distributions.Categorical(prob)
-            
-                action = dist.sample().item()
-        
+            action = dist.sample().cpu().detach().numpy()
+               
         return action
       
 class Q1(nn.Module):

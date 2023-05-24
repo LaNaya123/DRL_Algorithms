@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union, Tuple
 import gym
 import random
 import numpy as np
 import torch
 import torch.nn as nn
+from typing import Any, Dict, Optional, Union, Tuple
 from dqn import DQN
 from common.envs import Monitor, VecEnv
 import common.models as models
@@ -93,7 +93,6 @@ class C51(DQN):
             else:
                 q = torch.sum(v_dist * self.v_range.view(1, 1, -1), dim=2)
                 action = q.argmax(dim=1, keepdim=True).detach().numpy()
-                #print(action.shape)
 
             next_obs, reward, done, info = self.env.step(action)
 
@@ -118,13 +117,13 @@ class C51(DQN):
         assert isinstance(next_obs, torch.Tensor) and next_obs.shape[1] == self.observation_dim
         assert isinstance(dones, torch.Tensor) and dones.shape[1] == 1
             
-        v_probs_next = self.target_q_net(next_obs)
+        v_probs_next = self.target_q_net(next_obs).detach()
         
         q_next = torch.sum(v_probs_next * self.v_range.view(1, 1, -1), dim=2)
         
-        max_actions = q_next.max(dim=1)[1]
+        a_next = q_next.max(dim=1)[1]
         
-        v_probs_next = torch.stack([v_probs_next[i].index_select(0, max_actions[i]) for i in range(self.batch_size)]).squeeze(1).detach()
+        v_probs_next = torch.stack([v_probs_next[i].index_select(0, a_next[i]) for i in range(self.batch_size * self.env.num_envs)]).squeeze(1)
         
         v_dist_target = rewards + self.gamma * (1 - dones) * self.v_range.unsqueeze(0)
         v_dist_target = torch.clamp(v_dist_target, self.v_min, self.v_max)
@@ -134,16 +133,16 @@ class C51(DQN):
         lower_bound = torch.floor(v_dist_pos).type("torch.LongTensor")
         upper_bound = torch.ceil(v_dist_pos).type("torch.LongTensor")
         
-        v_probs_target = torch.zeros((self.batch_size, self.num_atoms))
+        v_probs_target = torch.zeros((self.batch_size * self.env.num_envs, self.num_atoms))
         
-        for i in range(self.batch_size):
+        for i in range(self.batch_size * self.env.num_envs):
             for j in range(self.num_atoms):
                 v_probs_target[i, lower_bound[i, j]] += v_probs_next[i][j] * (upper_bound[i][j] - v_dist_pos[i][j])
                 v_probs_target[i, upper_bound[i, j]] += v_probs_next[i][j] * (v_dist_pos[i][j] - lower_bound[i][j])
         
             
         v_probs_eval = self.q_net(obs)
-        v_probs_eval = torch.stack([v_probs_eval[i].index_select(0, actions[i][0]) for i in range(self.batch_size)]).squeeze(1)
+        v_probs_eval = torch.stack([v_probs_eval[i].index_select(0, actions[i][0]) for i in range(self.batch_size * self.env.num_envs)]).squeeze(1)
 
         loss = torch.mean(v_probs_target * (-torch.log(v_probs_eval + 1e-8)))
 
@@ -183,7 +182,7 @@ if __name__ == "__main__":
     
     c51 = C51(env, 
               rollout_steps=8,
-              total_timesteps=1e2,
+              total_timesteps=1e4,
               gradient_steps=1,
               n_steps=1,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 

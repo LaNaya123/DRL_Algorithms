@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union, Tuple
 import gym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Any, Dict, Optional, Union, Tuple
 from dqn import DQN
 import common.models as models
 from common.envs import Monitor, VecEnv
 from common.utils import Mish, evaluate_policy
     
-class DDQN(DQN):
+class DoubleDQN(DQN):
     def __init__(self, 
                  env: Union[Monitor, VecEnv], 
                  rollout_steps: int = 16,
@@ -33,7 +33,7 @@ class DDQN(DQN):
                  seed: Optional[int] = None,
                 ):
         
-        super(DDQN, self).__init__(
+        super(DoubleDQN, self).__init__(
                  env, 
                  rollout_steps,
                  total_timesteps, 
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     env = Monitor(env)
     env = VecEnv(env, num_envs=4)
     
-    ddqn = DDQN(env, 
+    ddqn = DoubleDQN(env, 
               rollout_steps=8,
               total_timesteps=1e2,
               gradient_steps=1,

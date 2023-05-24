@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-from typing import Optional, Tuple, Dict
 import multiprocessing as mp
 import numpy as np
-import random
 import gym
 from gym import spaces
+from typing import Optional, Tuple
 
 class Monitor():
     def __init__(self, env: gym.Env):

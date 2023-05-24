@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from typing import Union, Tuple
-from common.envs import Monitor, VecEnv
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import gym.spaces as spaces
+from typing import Union, Tuple
+from common.envs import Monitor, VecEnv
 
 def safe_mean(arr: np.ndarray) -> float:
     return np.nan if len(arr) == 0 else round(np.mean(arr), 2)

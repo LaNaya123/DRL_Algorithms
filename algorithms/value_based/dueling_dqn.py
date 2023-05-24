@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union, Tuple
 import gym
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Any, Dict, Optional, Union, Tuple
 from dqn import DQN
 from common.envs import Monitor, VecEnv
 import common.models as models

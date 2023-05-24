@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union, Tuple
 import ray  
-ray.init(ignore_reinit_error=True, runtime_env={"working_dir":"C:/Users/lanaya/Desktop/DRLAlgorithms"})
 import gym
 import random
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Any, Dict, Optional, Union, Tuple
 from collections import deque
 import common.models as models
 from common.envs import Monitor, VecEnv
 from common.utils import Mish, obs_to_tensor, swap_and_flatten, evaluate_policy, safe_mean
+
+ray.init(ignore_reinit_error=True, runtime_env={"working_dir":"C:/Users/lanaya/Desktop/DRLAlgorithms"})
 
 @ray.remote
 class Actor():

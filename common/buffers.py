@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import Union, Tuple
 import torch 
 import numpy as np
 import random
+from typing import Union, Tuple
 from collections import deque
 from common.utils import swap_and_flatten
 

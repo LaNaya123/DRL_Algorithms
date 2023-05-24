@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-from typing import Tuple
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from typing import Tuple
 
 def _extract_patches(x: torch.Tensor, kernel_size: Tuple[int, int], stride: Tuple[int, int], padding: Tuple[int, int]) -> torch.Tensor:
     if padding[0] + padding[1] > 0:

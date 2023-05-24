@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import Union, Optional, Any, Dict
 import numpy as np
 import random
 import torch
+from typing import Union, Optional, Any, Dict
 from collections import deque
 from common.envs import Monitor, VecEnv
 from common.utils import safe_mean
@@ -117,7 +117,7 @@ class OnPolicyAlgorithm():
                     
         if self.logger is not None:
             self.logger.close()
-            
+               
     def save(self, path: str) -> None:
         raise NotImplementedError("You have to overwrite this method in your own algorithm:)")
         

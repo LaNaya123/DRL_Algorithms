@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 import sys
 sys.path.append(r"C:\Users\lanaya\Desktop\DRLAlgorithms")
-from typing import Any, Dict, Optional, Union
 import gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from gym import spaces
+from typing import Any, Dict, Optional, Union
 from common.envs import Monitor, VecEnv
 import common.models as models
 from common.buffers import RolloutBuffer
@@ -50,11 +49,8 @@ class ACKTR(OnPolicyAlgorithm):
         
     def _setup_model(self) -> None:
         self.observation_dim = self.env.observation_space.shape[0]
-        
-        if isinstance(self.env.action_space, spaces.Discrete):
-            self.num_actions = self.env.action_space.n
-        elif isinstance(self.env.action_space, spaces.Box):
-            self.num_actions = self.env.action_space.shape[0]
+
+        self.num_actions = self.env.action_space.shape[0]
 
         self.policy_net = models.ACKTR(self.observation_dim, self.num_actions, **self.actor_kwargs)
         
