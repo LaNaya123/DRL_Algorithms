@@ -19,6 +19,19 @@ Implementations of some basic deep reinforcement learning (DRL) algorithms with 
 5、[Dueling_DQN (Dueling Deep Q-Network)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/value_based/dueling_dqn.py)  
 6、[QR_DQN (Quantile Regression Deep Q-Network)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/value_based/qr_dqn.py)  
 
+## Example🙃🦕🥑
+```Python
+import gymnasium as gym
+from DRLAlgorithms import PPO
+from DRLALgorithms.common.envs import Monitor
+from DRLAlgorithms.common.utils import evaluate_policy
 
-
+env = gym.make("Pendulum-v1")
+env = Monitor(env)
+ppo = PPO(env, total_timesteps=1e5, verbose=1)
+ppo.learn()
+ppo.save("./model.ckpt")
+model = ppo.load("./model.ckpt")
+print(evaluate_policy(ppo.policy_net, env))
+```
 
