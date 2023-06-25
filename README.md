@@ -2,7 +2,7 @@
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Documentation](https://img.shields.io/badge/documentation-no-red)
 # DRL_Algorithms (Pytorch)🫠🐻🌴
-Implementations of some basic deep reinforcement learning (DRL) algorithms with PyTorch. Limited by some computing resources, the algorithms are only tested on the Gym environments
+Implementations of some basic deep reinforcement learning (DRL) algorithms with PyTorch. Limited by some computing resources, the algorithms are only tested on the Gym environments.
 ## Algorithms😍🦄🚀
 ### Policy-based
 1、[ACER (Actor Critic with Experience Replay)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/acer.py)  
