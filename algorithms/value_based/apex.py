@@ -5,13 +5,13 @@ import ray
 import gym
 import random
 import numpy as np
-import torch
+import torchcd
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, Optional, Union, Tuple
 from collections import deque
 import common.models as models
-from common.envs import Monitor, VecEnv
+from common.envs import Monitor
 from common.utils import Mish, obs_to_tensor, swap_and_flatten, evaluate_policy, safe_mean
 
 ray.init(ignore_reinit_error=True, runtime_env={"working_dir":"C:/Users/lanaya/Desktop/DRLAlgorithms"})
@@ -163,7 +163,7 @@ class Learner():
         
         self.gamma = gamma
 
-    def _run(self):
+    def _run(self) -> None:
         update_steps = ray.get(self.params_server._get_update_steps.remote())
 
         while update_steps < self.update_steps:
@@ -327,7 +327,7 @@ class ReplayBuffer():
     
 class APEX():
     def __init__(self, 
-                 env: Union[Monitor, VecEnv], 
+                 env: Monitor, 
                  update_steps: int = 16,
                  gradient_steps: int = 4,
                  n_steps: int = 1,
@@ -394,7 +394,6 @@ class APEX():
             self.gamma
             )
             
-        
         self.obs = self.env.reset()
         
     def learn(self):

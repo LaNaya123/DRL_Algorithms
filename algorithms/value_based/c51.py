@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from typing import Any, Dict, Optional, Union, Tuple
-from dqn import DQN
+from algorithms.value_based.dqn import DQN
 from common.envs import Monitor, VecEnv
 import common.models as models
 from common.buffers import ReplayBuffer

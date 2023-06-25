@@ -289,23 +289,23 @@ class VPG(nn.Module):
             nn.Linear(hidden_size, num_actions),
             )
             
-        logstds_param = nn.Parameter(torch.full((num_actions,), 0.1))
-        self.register_parameter("logstds", logstds_param)
+        log_std = nn.Parameter(torch.full((num_actions,), 0.1))
+        self.register_parameter("log_std", log_std)
           
         self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        means = self.model(x)
+        mean = self.model(x)
          
-        stds = torch.clamp(self.logstds.exp(), 7e-4, 50)
+        std = torch.clamp(self.log_std.exp(), 7e-4, 50)
         
-        return distributions.Normal(means, stds) 
+        return distributions.Normal(mean, std) 
            
     def predict(self, x: torch.Tensor) -> np.ndarray:
         with torch.no_grad():
             mean = self.model(x)
             
-            std = torch.clamp(self.logstds.exp(), 7e-4, 50)
+            std = torch.clamp(self.log_std.exp(), 7e-4, 50)
             
             dist = distributions.Normal(mean, std) 
             

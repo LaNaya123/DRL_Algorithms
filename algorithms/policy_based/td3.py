@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, Optional, Union
-from ddpg import DDPG
+from algorithms.policy_based.ddpg import DDPG
 import common.models as models
 from common.envs import Monitor, VecEnv
 from common.buffers import ReplayBuffer

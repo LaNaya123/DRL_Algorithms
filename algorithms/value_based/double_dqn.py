@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, Optional, Union, Tuple
-from dqn import DQN
+from algorithms.value_based.dqn import DQN
 import common.models as models
 from common.envs import Monitor, VecEnv
 from common.utils import Mish, evaluate_policy

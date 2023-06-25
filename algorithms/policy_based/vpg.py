@@ -100,7 +100,7 @@ class VPG(OnPolicyAlgorithm):
         values = self.value_net(obs)
             
         if  self.td_method == "td":
-            target_values = rewards + self.gamma * self.critic(next_obs) * (1 - dones)
+            target_values = rewards + self.gamma * self.value_net(next_obs) * (1 - dones)
                 
             advantages = target_values - values
             
@@ -108,10 +108,9 @@ class VPG(OnPolicyAlgorithm):
             if dones[-1]:
                 last_value = 0
             else:
-                last_value = self.critic(next_obs[-1])
+                last_value = self.value_net(next_obs[-1])
             
             target_values = compute_td_target(rewards, dones, last_value, gamma=self.gamma)
-            target_values = target_values.to(self.device)
                 
             advantages = target_values - values
                 
@@ -131,21 +130,21 @@ class VPG(OnPolicyAlgorithm):
             
         log_probs = dists.log_prob(actions)
              
-        actor_loss = -(log_probs * advantages.detach()).mean()
+        policy_loss = -(log_probs * advantages.detach()).mean()
             
         self.policy_net.optimizer.zero_grad()
-        actor_loss.backward()
+        policy_loss.backward()
             
         if self.max_grad_norm:
             clip_grad_norm_(self.policy_net.optimizer, self.max_grad_norm)
             
         self.policy_net.optimizer.step()
         
-        critic_loss = F.mse_loss(target_values.detach(), values)
+        value_loss = F.mse_loss(target_values.detach(), values)
             
         self.value_net.optimizer.zero_grad()
             
-        critic_loss.backward()
+        value_loss.backward()
             
         if self.max_grad_norm:
             clip_grad_norm_(self.value_net.optimizer, self.max_grad_norm)
