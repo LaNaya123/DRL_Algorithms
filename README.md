@@ -1,7 +1,7 @@
 ![Language](https://img.shields.io/badge/language-python-blue)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Documentation](https://img.shields.io/badge/documentation-no-red)
-# DRL_Algorithms (Pytorch)🫠🐻🌴
+# DRL_Algorithms (PyTorch)🫠🐻🌴
 Implementations of some basic deep reinforcement learning (DRL) algorithms with PyTorch. Limited by some computing resources, the algorithms are only tested on the Gym environments.
 ## Algorithms😍🦄🚀
 ### Policy-based
