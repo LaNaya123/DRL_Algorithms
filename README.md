@@ -9,8 +9,9 @@ Implementations of some basic deep reinforcement learning (DRL) algorithms with 
 2、[ACKTR (Actor Critic using Kronecker-Factored Trust Region)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/acktr.py)  
 3、[DDPG (Deep Deterministic Policy Gradient)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/ddpg.py)  
 4、[PPO (Proximal Policy Optimization)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/ppo.py)  
-5、[TD3 (Twin Delayed DDPG)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/td3.py)  
-6、[VPG (Vanilla Policy Gradient)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/vpg.py)  
+5、[SAC (Soft Actor Critic)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/sac.py)  
+6、[TD3 (Twin Delayed DDPG)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/td3.py)  
+7、[VPG (Vanilla Policy Gradient)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/policy_based/vpg.py)  
 ### Value-based
 1、[APEX (Distributed Prioritized Experience Replay)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/value_based/apex.py)  
 2、[C51 (Categorical Deep Q-Network)](https://github.com/LaNaya123/DRL_Algorithms/blob/master/algorithms/value_based/c51.py)  
