@@ -7,10 +7,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, Optional
+import common.models as models
 from common.envs import Monitor
 from common.policies import OffPolicyAlgorithm
 from common.models import VPG, Q2
-from common.utils import Mish, obs_to_tensor, evaluate_policy
+from common.utils import Mish, obs_to_tensor, clip_grad_norm_, evaluate_policy
 
 class ACER(OffPolicyAlgorithm):
     def __init__(
@@ -27,6 +28,7 @@ class ACER(OffPolicyAlgorithm):
                  gamma: float = 0.99,
                  tau: float = 0.95,
                  c: int = 1,
+                 max_grad_norm: Optional[float] = 0.5,
                  log_dir: Optional[str] = None,
                  log_interval: int = 10,
                  verbose: int = 1,
@@ -50,6 +52,7 @@ class ACER(OffPolicyAlgorithm):
                  1,
                  None,
                  gamma,
+                 max_grad_norm,
                  log_dir, 
                  log_interval,
                  verbose,
@@ -61,9 +64,9 @@ class ACER(OffPolicyAlgorithm):
         
         self.num_actions = self.env.action_space.n
         
-        self.policy_net = VPG(self.observation_dim, self.num_actions, action_space="Discrete", **self.actor_kwargs)
+        self.policy_net = models.ACER(self.observation_dim, self.num_actions, **self.actor_kwargs)
         
-        self.value_net = Q2(self.observation_dim, self.num_actions, **self.critic_kwargs)
+        self.value_net = models.Q2(self.observation_dim, self.num_actions, **self.critic_kwargs)
         
         if self.verbose > 0:
             print(self.policy_net)
@@ -140,20 +143,24 @@ class ACER(OffPolicyAlgorithm):
         q_ret_buffer.reverse()
         q_ret = torch.FloatTensor(q_ret_buffer).unsqueeze(1)
             
-        critic_loss = F.smooth_l1_loss(q_a, q_ret)
+        value_loss = F.smooth_l1_loss(q_a, q_ret)
             
         self.value_net.optimizer.zero_grad()
-        critic_loss.backward()
+        value_loss.backward()
+        if self.max_grad_norm:
+            clip_grad_norm_(self.value_net.optimizer, self.max_grad_norm)
         self.value_net.optimizer.step()
         
         truncation_loss = rho_a_clip * torch.log(pi_a) * (q_ret - v)
 
         bias_correction_loss = (1-self.c/rho).clamp(min=0) * pi.detach() * torch.log(pi) * (q.detach() - v)
 
-        actor_loss = (truncation_loss + bias_correction_loss.sum(dim=1)).mean()
+        policy_loss = (truncation_loss + bias_correction_loss.sum(dim=1)).mean()
             
         self.policy_net.optimizer.zero_grad()
-        actor_loss.backward()
+        policy_loss.backward()
+        if self.max_grad_norm:
+            clip_grad_norm_(self.policy_net.optimizer, self.max_grad_norm)
         self.policy_net.optimizer.step()
     
     def save(self, path: str) -> None:
@@ -169,7 +176,7 @@ class ACER(OffPolicyAlgorithm):
         with open(path, "rb") as f:
             state_dict = torch.load(f)
             
-            self.policy_net = VPG(self.observation_dim, self.num_actions, action_space="Discrete", **self.actor_kwargs)
+            self.policy_net = models.ACER(self.observation_dim, self.num_actions, **self.actor_kwargs)
             self.policy_net.load_state_dict(state_dict)
             self.policy_net = self.policy_net
  
@@ -184,11 +191,11 @@ if __name__ == "__main__":
     
     acer = ACER(env, 
               rollout_steps=8, 
-              total_timesteps=3e4,
+              total_timesteps=1e6,
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               log_dir=None,
-              seed=7,
+              seed=17,
              )
     
     acer.learn()

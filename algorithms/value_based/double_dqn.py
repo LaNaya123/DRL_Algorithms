@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Union, Tuple
 from algorithms.value_based.dqn import DQN
 import common.models as models
 from common.envs import Monitor, VecEnv
-from common.utils import Mish, evaluate_policy
+from common.utils import Mish, clip_grad_norm_, evaluate_policy
     
 class DoubleDQN(DQN):
     def __init__(self, 
@@ -24,6 +24,7 @@ class DoubleDQN(DQN):
                  batch_size: int = 256,
                  target_update_interval: int = 20,
                  gamma: float = 0.99,
+                 max_grad_norm: Optional[float] = 0.5,
                  exploration_initial_eps: float = 0.2,
                  exploration_final_eps: float = 0.05,
                  exploration_decay_steps: int = 10000,
@@ -45,6 +46,7 @@ class DoubleDQN(DQN):
                  batch_size,
                  target_update_interval,
                  gamma,
+                 max_grad_norm,
                  exploration_initial_eps,
                  exploration_final_eps,
                  exploration_decay_steps,
@@ -80,6 +82,8 @@ class DoubleDQN(DQN):
 
         self.q_net.optimizer.zero_grad()
         loss.backward()
+        if self.max_grad_norm:
+            clip_grad_norm_(self.q_net.optimizer, self.max_grad_norm)
         self.q_net.optimizer.step()
 
         if self.training_iterations % self.target_update_interval == 0:
@@ -114,13 +118,14 @@ if __name__ == "__main__":
     
     ddqn = DoubleDQN(env, 
               rollout_steps=8,
-              total_timesteps=1e2,
+              total_timesteps=1e6,
               gradient_steps=1,
               n_steps=1,
               qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
               learning_start=500,
               buffer_size=5000,
               batch_size=64,
+              max_grad_norm=None,
               log_dir=None,
               log_interval=20,
               seed=2,)

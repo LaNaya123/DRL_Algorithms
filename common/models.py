@@ -57,6 +57,45 @@ class ACKTR(nn.Module):
         action = normal_dist.sample().detach().numpy()
         return action
     
+class ACER(nn.Module):
+    def __init__(self, 
+                 observation_dim: int, 
+                 num_actions: int, 
+                 hidden_size: int = 64, 
+                 activation_fn: Type[nn.Module] = nn.Tanh,
+                 optimizer: Type[optim.Optimizer] = optim.Adam,
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4},
+                ):
+        
+        super(ACER, self).__init__()
+        
+        self.observation_dim = observation_dim
+        self.num_action = num_actions
+        self.hidden_size = hidden_size
+        self.activation_fn = activation_fn
+        
+        self.model = nn.Sequential(
+            nn.Linear(observation_dim, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, hidden_size),
+            activation_fn(),
+            nn.Linear(hidden_size, num_actions),
+            )
+          
+        self.optimizer = optimizer(self.parameters(), **optimizer_kwargs)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        logits = self.model(x)        
+        return distributions.Categorical(logits=logits) 
+           
+    def predict(self, x: torch.Tensor) -> np.ndarray:
+        with torch.no_grad():
+            logits = self.model(x)
+            dist = distributions.Categorical(logits=logits) 
+            action = dist.sample().cpu().detach().numpy()
+               
+        return action
+    
 class C51(nn.Module):
     def __init__(self, 
                  observation_dim: int, 
@@ -320,7 +359,7 @@ class Q1(nn.Module):
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh, 
                  optimizer: Type[optim.Optimizer] = optim.Adam,
-                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
                 ):
         
         super(Q1, self).__init__()
@@ -351,7 +390,7 @@ class Q2(nn.Module):
                  hidden_size: int = 64, 
                  activation_fn: Type[nn.Module] = nn.Tanh, 
                  optimizer: Type[optim.Optimizer] = optim.Adam,
-                 optimizer_kwargs: Dict[str, Any] = {"lr": 3e-4}
+                 optimizer_kwargs: Dict[str, Any] = {"lr": 1e-3}
                 ):
         
         super(Q2, self).__init__()

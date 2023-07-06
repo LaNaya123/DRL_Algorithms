@@ -56,11 +56,8 @@ class PPO(OnPolicyAlgorithm):
         
     def _setup_model(self) -> None:
         self.observation_dim = self.env.observation_space.shape[0]
-        
-        if isinstance(self.env.action_space, spaces.Discrete):
-            self.num_actions = self.env.action_space.n
-        elif isinstance(self.env.action_space, spaces.Box):
-            self.num_actions = self.env.action_space.shape[0]
+
+        self.num_actions = self.env.action_space.shape[0]
 
         self.policy_net = models.VPG(self.observation_dim, self.num_actions, **self.actor_kwargs)
 
@@ -84,7 +81,7 @@ class PPO(OnPolicyAlgorithm):
             
                 action = dist.sample().detach()
                 
-                log_prob = dist.log_prob(action).numpy()
+                log_prob = dist.log_prob(action).sum(dim=1, keepdim=True).numpy()
                 
                 action = action.numpy()
 
@@ -147,7 +144,7 @@ class PPO(OnPolicyAlgorithm):
             
             old_log_probs = log_probs
             
-            log_probs = dists.log_prob(actions)
+            log_probs = dists.log_prob(actions).sum(dim=1, keepdim=True)
 
             ratio = torch.exp(log_probs - old_log_probs)
 
@@ -218,5 +215,5 @@ if __name__ == "__main__":
     
     ppo.learn()
     ppo.save("./model.ckpt")
-    model = ppo.load("./model.ckpt")
-    print(evaluate_policy(ppo.policy_net, env))
+    ppo = ppo.load("./model.ckpt")
+    print(evaluate_policy(ppo, env))

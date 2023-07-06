@@ -5,14 +5,14 @@ import ray
 import gym
 import random
 import numpy as np
-import torchcd
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, Optional, Union, Tuple
 from collections import deque
 import common.models as models
 from common.envs import Monitor
-from common.utils import Mish, obs_to_tensor, swap_and_flatten, evaluate_policy, safe_mean
+from common.utils import Mish, obs_to_tensor, clip_grad_norm_, swap_and_flatten, evaluate_policy, safe_mean
 
 ray.init(ignore_reinit_error=True, runtime_env={"working_dir":"C:/Users/lanaya/Desktop/DRLAlgorithms"})
 
@@ -137,6 +137,7 @@ class Learner():
                  learning_start,
                  target_update_interval,
                  gamma,
+                 max_grad_norm,
                 ):
         
         self.observation_dim = observation_dim
@@ -162,6 +163,8 @@ class Learner():
         self.target_update_interval = target_update_interval
         
         self.gamma = gamma
+        
+        self.max_grad_norm = max_grad_norm
 
     def _run(self) -> None:
         update_steps = ray.get(self.params_server._get_update_steps.remote())
@@ -192,6 +195,8 @@ class Learner():
 
                 self.q_net.optimizer.zero_grad()
                 loss.backward()
+                if self.max_grad_norm:
+                     clip_grad_norm_(self.q_net.optimizer, self.max_grad_norm)
                 self.q_net.optimizer.step()
             
                 self._update_params_server()
@@ -339,6 +344,7 @@ class APEX():
                  actor_update_interval: int = 10,
                  target_update_interval: int = 20,
                  gamma: float = 0.99,
+                 max_grad_norm: Optional[float] = 0.5,
                  exploration_initial_eps: float = 0.2,
                  exploration_final_eps: float = 0.05,
                  exploration_decay_steps: int = 10000,
@@ -360,6 +366,7 @@ class APEX():
         self.actor_update_interval = actor_update_interval
         self.target_update_interval = target_update_interval
         self.gamma = gamma
+        self.max_grad_norm = max_grad_norm
         self.exploration_initial_eps = exploration_initial_eps
         self.exploration_final_eps =exploration_final_eps
         self.exploration_decay_steps =exploration_decay_steps
@@ -391,7 +398,7 @@ class APEX():
             self.observation_dim, self.num_actions, self.qnet_kwargs, 
             self.buffer, self.params_server, self.batch_size,
             self.update_steps, self.learning_start, self.target_update_interval,
-            self.gamma
+            self.gamma, self.max_grad_norm,
             )
             
         self.obs = self.env.reset()
@@ -431,18 +438,19 @@ if __name__ == "__main__":
     env = Monitor(env)
 
     apex = APEX(env, 
-                update_steps=1000,
-                gradient_steps=1,
+                update_steps=10,
+                gradient_steps=4,
                 n_steps=1,
                 num_actors=4,
                 qnet_kwargs={"activation_fn": Mish, "optimizer_kwargs":{"lr":1e-3}}, 
                 learning_start=500,
-                buffer_size=5000,
+                buffer_size=10000,
                 batch_size=64,
+                max_grad_norm=None,
                 log_dir=None,
                 log_interval=20,
                 verbose=1,
-                seed=7,)
+                seed=1,)
     
     apex.learn()
     apex.save("./model.ckpt")

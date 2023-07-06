@@ -12,7 +12,7 @@ import common.models as models
 from common.buffers import RolloutBuffer
 from common.policies import OnPolicyAlgorithm
 from common.optimizers import KFACOptimizer
-from common.utils import clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
+from common.utils import Mish, clip_grad_norm_, compute_gae_advantage, compute_td_target, obs_to_tensor, evaluate_policy
 
 class ACKTR(OnPolicyAlgorithm):
     def __init__(self, 
@@ -24,7 +24,7 @@ class ACKTR(OnPolicyAlgorithm):
                  td_method: str = "td_lambda",
                  gamma: float = 0.99,
                  gae_lambda: float = 0.95,
-                 max_grad_norm: Optional[float] = None,
+                 max_grad_norm: Optional[float] = 0.5,
                  log_dir: str = None,
                  log_interval: int = 100,
                  verbose: int = 1,
@@ -150,7 +150,7 @@ class ACKTR(OnPolicyAlgorithm):
             
             dists = self.policy_net(obs)
             
-            log_probs = dists.log_prob(actions)
+            log_probs = dists.log_prob(actions).sum(dim=1, keepdim=True)
              
             if self.policy_net.optimizer.steps % self.policy_net.optimizer.Ts == 0:
                 self.policy_net.zero_grad()
@@ -162,14 +162,10 @@ class ACKTR(OnPolicyAlgorithm):
                 self.policy_net.optimizer.acc_stats = False
 
             self.policy_loss = -(log_probs * advantages.detach()).mean()
-            
             self.policy_net.optimizer.zero_grad()
-            
             self.policy_loss.backward()
-            
             if self.max_grad_norm is not None:
                 clip_grad_norm_(self.policy_net.optimizer, self.max_grad_norm)
-            
             self.policy_net.optimizer.step()
             
             if self.value_net.optimizer.steps % self.value_net.optimizer.Ts == 0:
@@ -186,14 +182,10 @@ class ACKTR(OnPolicyAlgorithm):
                 self.value_net.optimizer.acc_stats = False
 
             self.value_loss = F.smooth_l1_loss(target_values.detach(), values)
-            
             self.value_net.optimizer.zero_grad()
-            
-            self.value_loss.backward()
-            
+            self.value_loss.backward()            
             if self.max_grad_norm is not None:
-                clip_grad_norm_(self.value_net.optimizer, self.max_grad_norm)
-            
+                clip_grad_norm_(self.value_net.optimizer, self.max_grad_norm)            
             self.value_net.optimizer.step()
             
     def save(self, path: str) -> None:
@@ -225,12 +217,13 @@ if __name__ == "__main__":
     
     acktr = ACKTR(env, 
               rollout_steps=8, 
-              total_timesteps=1e2,
-              critic_kwargs={"activation_fn": nn.ReLU},
-              max_grad_norm=0.5,
+              total_timesteps=1e6,
+              actor_kwargs={"activation_fn": Mish},
+              critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",
+              max_grad_norm=0.5,
               log_dir="C:/Users/lanaya/Desktop",
-              seed=22,
+              seed=2,
              )
     
     acktr.learn()

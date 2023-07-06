@@ -128,7 +128,7 @@ class VPG(OnPolicyAlgorithm):
             
         dists = self.policy_net(obs)
             
-        log_probs = dists.log_prob(actions)
+        log_probs = dists.log_prob(actions).sum(dim=1, keepdim=True)
              
         policy_loss = -(log_probs * advantages.detach()).mean()
             
@@ -176,11 +176,10 @@ class VPG(OnPolicyAlgorithm):
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     env = Monitor(env)
-    env = VecEnv(env, num_envs=1)
     
     vpg = VPG(env, 
               rollout_steps=8, 
-              total_timesteps=1e4, 
+              total_timesteps=1e6, 
               actor_kwargs={"activation_fn": Mish}, 
               critic_kwargs={"activation_fn": Mish},
               td_method="td_lambda",

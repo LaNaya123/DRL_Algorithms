@@ -31,6 +31,7 @@ class TD3(DDPG):
                  ou_noise: Optional[OrnsteinUhlenbeckNoise] = None,
                  tau: float = 0.95,
                  gamma: float = 0.99,
+                 max_grad_norm: Optional[float] = 0.5,
                  log_dir: Optional[str] = None,
                  log_interval: int = 10,
                  verbose: int = 1,
@@ -52,11 +53,12 @@ class TD3(DDPG):
                  ou_noise,
                  tau,
                  gamma,
+                 max_grad_norm,
                  log_dir,
                  log_interval,
                  verbose,
                  seed,
-        )
+             )
         
         self.policy_delay = policy_delay
         
@@ -156,7 +158,7 @@ if __name__ == "__main__":
     ou_noise = OrnsteinUhlenbeckNoise(np.zeros(env.action_space.shape[0]))
     
     td3 = TD3(env, 
-              total_timesteps=1e2, 
+              total_timesteps=1e6, 
               gradient_steps=4,
               rollout_steps=8, 
               n_steps=1,

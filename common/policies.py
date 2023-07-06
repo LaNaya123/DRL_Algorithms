@@ -18,7 +18,7 @@ class OnPolicyAlgorithm():
                  td_method: str,
                  gamma: float,
                  gae_lambda: float,
-                 max_grad_norm: float,
+                 max_grad_norm: Optional[float],
                  log_dir: Optional[str],
                  log_interval: int,
                  verbose: int,
@@ -136,6 +136,7 @@ class OffPolicyAlgorithm():
                  batch_size: int,
                  target_update_interval: int,
                  gamma: float,
+                 max_grad_norm: Optional[float],
                  log_dir: Optional[str],
                  log_interval: int,
                  verbose: int,
@@ -152,6 +153,7 @@ class OffPolicyAlgorithm():
         self.batch_size=batch_size
         self.target_update_interval = target_update_interval
         self.gamma = gamma
+        self.max_grad_norm = max_grad_norm
         self.log_dir = log_dir
         self.log_interval = log_interval
         self.verbose = verbose
@@ -233,7 +235,7 @@ class OffPolicyAlgorithm():
                     self.logger.add_scalar("policy_loss", self.policy_loss, self.training_iterations())
                     self.logger.add_scalar("value_loss", self.value_loss, self.training_iterations())
                 
-                if self.verbose >= 1:
+                if self.verbose > 0:
                     print("episode", self.num_episodes,
                           "episode_reward_mean", safe_mean([ep_info["episode returns"] for ep_info in self.episode_info_buffer]),
                          )
