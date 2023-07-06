@@ -31,7 +31,7 @@ env = Monitor(env)
 ppo = PPO(env, total_timesteps=1e5, verbose=1)
 ppo.learn()
 ppo.save("./model.ckpt")
-model = ppo.load("./model.ckpt")
-print(evaluate_policy(ppo.policy_net, env))
+ppo = ppo.load("./model.ckpt")
+print(evaluate_policy(ppo, env))
 ```
 
